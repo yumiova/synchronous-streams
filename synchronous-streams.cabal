@@ -12,3 +12,4 @@ synopsis:      Simple and fast embedding of synchronous dataflow
 category:      Data
 
 library
+  default-language: Haskell2010
