@@ -18,3 +18,7 @@ library
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns
     -Wincomplete-record-updates -Wredundant-constraints
+
+source-repository head
+  type:     git
+  location: https://github.com/yumiova/synchronous-streams
