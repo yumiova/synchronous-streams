@@ -9,5 +9,6 @@ stability:     alpha
 homepage:      https://github.com/yumiova/synchronous-streams
 bug-reports:   https://github.com/yumiova/synchronous-streams/issues
 synopsis:      Simple and fast embedding of synchronous dataflow
+category:      Data
 
 library
