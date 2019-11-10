@@ -16,6 +16,7 @@ library
   exposed-modules:  Data.Stream.Synchronous
   build-depends:    base >=4.12.0.0 && <4.13
   hs-source-dirs:   library
+  other-extensions: TupleSections
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns
     -Wincomplete-record-updates -Wredundant-constraints
