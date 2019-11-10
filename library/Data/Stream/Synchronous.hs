@@ -1,4 +1,4 @@
-module Data.Stream.Synchronous (Stream) where
+module Data.Stream.Synchronous (Stream, Source) where
 
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.ST (ST)
@@ -22,3 +22,5 @@ instance Monad (Stream t) where
 
 instance MonadFix (Stream t) where
   mfix f = Stream $ mfix $ runStream . f
+
+newtype Source t a = Source {runSource :: ST t (a, ST t (ST t ()))}
