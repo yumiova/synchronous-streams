@@ -19,7 +19,10 @@ library
     , streams  >=3.3      && <3.4
 
   hs-source-dirs:   library
-  other-extensions: TupleSections
+  other-extensions:
+    RankNTypes
+    TupleSections
+
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns
     -Wincomplete-record-updates -Wredundant-constraints
