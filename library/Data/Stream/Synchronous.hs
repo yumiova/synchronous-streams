@@ -49,3 +49,6 @@ instance Monad (Source t) where
     Source $ do
       ~(a, lgather) <- runSource lsource
       second (lgather <>) <$> runSource (f a)
+
+instance MonadFix (Source t) where
+  mfix f = Source $ mfix $ runSource . f . fst
