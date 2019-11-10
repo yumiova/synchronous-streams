@@ -1,0 +1,5 @@
+name:       synchronous-streams
+version:    0.1.0.0
+build-type: Simple
+
+library
