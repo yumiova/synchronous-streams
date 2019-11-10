@@ -21,4 +21,6 @@ let
 
   pkgs = import nixpkgs { overlays = [ overlay ]; };
 in
-{}
+{
+  inherit (pkgs.haskellPackages) synchronous-streams;
+}
