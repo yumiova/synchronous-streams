@@ -6,5 +6,7 @@ copyright:     (c) 2019 yumiova
 author:        yumiova
 maintainer:    yumiova@protonmail.ch
 stability:     alpha
+homepage:      https://github.com/yumiova/synchronous-streams
+bug-reports:   https://github.com/yumiova/synchronous-streams/issues
 
 library
