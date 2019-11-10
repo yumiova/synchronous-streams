@@ -1,5 +1,6 @@
-name:       synchronous-streams
-version:    0.1.0.0
-build-type: Simple
+name:          synchronous-streams
+version:       0.1.0.0
+cabal-version: >=1.10
+build-type:    Simple
 
 library
