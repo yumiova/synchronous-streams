@@ -4,16 +4,19 @@
 module Data.Stream.Synchronous
   ( Stream,
     Source,
+    fbyWith,
     toList,
     toStream,
   )
 where
 
 import Control.Applicative (liftA2)
+import Control.Arrow ((&&&))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.ST (ST, runST)
 import Control.Monad.ST.Unsafe (unsafeInterleaveST)
 import Data.Bifunctor (first, second)
+import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 
 newtype Stream t a = Stream {runStream :: ST t a}
@@ -57,6 +60,14 @@ instance Monad (Source t) where
 
 instance MonadFix (Source t) where
   mfix f = Source $ mfix $ runSource . f . fst
+
+fbyWith :: (forall r. a -> r -> r) -> a -> Stream t a -> Source t (Stream t a)
+fbyWith before initial future =
+  Source $ (stream &&& gather) <$> newMutVar initial
+  where
+    stream = Stream . readMutVar
+    gather previous = scatter previous <$> runStream future
+    scatter previous a = a `before` writeMutVar previous a
 
 toList :: (forall t. Source t (Stream t a)) -> [a]
 toList source =
