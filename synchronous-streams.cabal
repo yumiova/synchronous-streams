@@ -15,8 +15,9 @@ library
   default-language: Haskell2010
   exposed-modules:  Data.Stream.Synchronous
   build-depends:
-      base     >=4.12.0.0 && <4.13
-    , streams  >=3.3      && <3.4
+      base       >=4.12.0.0 && <4.13
+    , primitive  >=0.6.4.0  && <0.7
+    , streams    >=3.3      && <3.4
 
   hs-source-dirs:   library
   other-extensions:
