@@ -7,6 +7,7 @@ module Data.Stream.Synchronous
     fbyWith,
     fby,
     fby',
+    statefulWith,
     toList,
     toStream,
   )
@@ -78,6 +79,14 @@ fby = fbyWith (const id)
 
 fby' :: a -> Stream t a -> Source t (Stream t a)
 fby' = fbyWith seq
+
+statefulWith ::
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t (a -> a) ->
+  Source t (Stream t a)
+statefulWith before initial step =
+  mfix $ \a -> fbyWith before initial (step <*> a)
 
 toList :: (forall t. Source t (Stream t a)) -> [a]
 toList source =
