@@ -1,15 +1,19 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
 module Data.Stream.Synchronous
   ( Stream,
     Source,
+    toStream,
   )
 where
 
 import Control.Applicative (liftA2)
 import Control.Monad.Fix (MonadFix (mfix))
-import Control.Monad.ST (ST)
+import Control.Monad.ST (ST, runST)
+import Control.Monad.ST.Unsafe (unsafeInterleaveST)
 import Data.Bifunctor (first, second)
+import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 
 newtype Stream t a = Stream {runStream :: ST t a}
 
@@ -52,3 +56,14 @@ instance Monad (Source t) where
 
 instance MonadFix (Source t) where
   mfix f = Source $ mfix $ runSource . f . fst
+
+toStream :: (forall t. Source t (Stream t a)) -> Infinite.Stream a
+toStream source =
+  runST $ do
+    ~(stream, gather) <- runSource source
+    let xs = do
+          a <- runStream stream
+          scatter <- gather
+          scatter
+          (a Infinite.:>) <$> unsafeInterleaveST xs
+    xs
