@@ -63,19 +63,17 @@ toList source =
   runST $ do
     ~(stream, gather) <- runSource source
     let xs = do
-          a <- runStream stream
           scatter <- gather
           scatter
-          (a :) <$> unsafeInterleaveST xs
-    xs
+          liftA2 (:) (runStream stream) (unsafeInterleaveST xs)
+    liftA2 (:) (runStream stream) (unsafeInterleaveST xs)
 
 toStream :: (forall t. Source t (Stream t a)) -> Infinite.Stream a
 toStream source =
   runST $ do
     ~(stream, gather) <- runSource source
     let xs = do
-          a <- runStream stream
           scatter <- gather
           scatter
-          (a Infinite.:>) <$> unsafeInterleaveST xs
-    xs
+          liftA2 (Infinite.:>) (runStream stream) (unsafeInterleaveST xs)
+    liftA2 (Infinite.:>) (runStream stream) (unsafeInterleaveST xs)
