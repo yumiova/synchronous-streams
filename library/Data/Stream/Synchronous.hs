@@ -5,6 +5,8 @@ module Data.Stream.Synchronous
   ( Stream,
     Source,
     fbyWith,
+    fby,
+    fby',
     toList,
     toStream,
   )
@@ -18,6 +20,8 @@ import Control.Monad.ST.Unsafe (unsafeInterleaveST)
 import Data.Bifunctor (first, second)
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
+
+infixr 5 `fby`, `fby'`
 
 newtype Stream t a = Stream {runStream :: ST t a}
 
@@ -68,6 +72,12 @@ fbyWith before initial future =
     stream = Stream . readMutVar
     gather previous = scatter previous <$> runStream future
     scatter previous a = a `before` writeMutVar previous a
+
+fby :: a -> Stream t a -> Source t (Stream t a)
+fby = fbyWith (const id)
+
+fby' :: a -> Stream t a -> Source t (Stream t a)
+fby' = fbyWith seq
 
 toList :: (forall t. Source t (Stream t a)) -> [a]
 toList source =
