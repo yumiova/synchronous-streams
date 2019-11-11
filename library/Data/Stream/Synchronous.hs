@@ -4,6 +4,7 @@
 module Data.Stream.Synchronous
   ( Stream,
     Source,
+    toList,
     toStream,
   )
 where
@@ -56,6 +57,17 @@ instance Monad (Source t) where
 
 instance MonadFix (Source t) where
   mfix f = Source $ mfix $ runSource . f . fst
+
+toList :: (forall t. Source t (Stream t a)) -> [a]
+toList source =
+  runST $ do
+    ~(stream, gather) <- runSource source
+    let xs = do
+          a <- runStream stream
+          scatter <- gather
+          scatter
+          (a :) <$> unsafeInterleaveST xs
+    xs
 
 toStream :: (forall t. Source t (Stream t a)) -> Infinite.Stream a
 toStream source =
