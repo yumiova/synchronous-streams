@@ -14,6 +14,9 @@ module Data.Stream.Synchronous
     statefulWith,
     stateful,
     stateful',
+    statefulTWith,
+    statefulT,
+    statefulT',
     toList,
     toStream,
     toCofree,
@@ -119,7 +122,7 @@ statefulWith ::
   Stream t (a -> a) ->
   SourceA f t (Stream t a)
 statefulWith before initial step =
-  mfix $ \a -> fbyWith before initial (step <*> a)
+  statefulTWith before initial ((\f -> pure . f) <$> step)
 
 stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
 stateful = statefulWith (const id)
@@ -127,14 +130,36 @@ stateful = statefulWith (const id)
 stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
 stateful' = statefulWith seq
 
+statefulTWith ::
+  Applicative f =>
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t (a -> f a) ->
+  SourceA f t (Stream t a)
+statefulTWith before initial step =
+  mfix $ \a -> fbyTWith before initial (step <*> a)
+
+statefulT ::
+  Applicative f =>
+  a ->
+  Stream t (a -> f a) ->
+  SourceA f t (Stream t a)
+statefulT = statefulTWith (const id)
+
+statefulT' ::
+  Applicative f =>
+  a ->
+  Stream t (a -> f a) ->
+  SourceA f t (Stream t a)
+statefulT' = statefulTWith seq
+
 toCofree :: Functor f => (forall t. SourceA f t (Stream t a)) -> Cofree f a
 toCofree source =
   runST $ do
     ~(stream, gather) <- runSourceA source
-    let xs =
-          liftA2 (:<) (runStream stream) $ do
-            process <- gather
-            unsafeDupableCollect (\scatter -> scatter *> xs) process
+    let xs = do
+          process <- gather
+          liftA2 (:<) (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
 toList :: (forall t. Source t (Stream t a)) -> [a]
