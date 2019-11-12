@@ -25,6 +25,7 @@ library
   other-extensions:
     RankNTypes
     TupleSections
+    UnboxedTuples
 
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns
