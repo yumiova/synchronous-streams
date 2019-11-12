@@ -73,7 +73,12 @@ instance Applicative f => Monad (SourceA f t) where
 instance Applicative f => MonadFix (SourceA f t) where
   mfix f = SourceA $ mfix $ runSourceA . f . fst
 
-fbyWith :: (forall r. a -> r -> r) -> a -> Stream t a -> Source t (Stream t a)
+fbyWith ::
+  Applicative f =>
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t a ->
+  SourceA f t (Stream t a)
 fbyWith before initial future =
   SourceA $ (stream &&& gather) <$> newMutVar initial
   where
@@ -81,24 +86,25 @@ fbyWith before initial future =
     gather previous = pure . scatter previous <$> runStream future
     scatter previous a = a `before` writeMutVar previous a
 
-fby :: a -> Stream t a -> Source t (Stream t a)
+fby :: Applicative f => a -> Stream t a -> SourceA f t (Stream t a)
 fby = fbyWith (const id)
 
-fby' :: a -> Stream t a -> Source t (Stream t a)
+fby' :: Applicative f => a -> Stream t a -> SourceA f t (Stream t a)
 fby' = fbyWith seq
 
 statefulWith ::
+  Applicative f =>
   (forall r. a -> r -> r) ->
   a ->
   Stream t (a -> a) ->
-  Source t (Stream t a)
+  SourceA f t (Stream t a)
 statefulWith before initial step =
   mfix $ \a -> fbyWith before initial (step <*> a)
 
-stateful :: a -> Stream t (a -> a) -> Source t (Stream t a)
+stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
 stateful = statefulWith (const id)
 
-stateful' :: a -> Stream t (a -> a) -> Source t (Stream t a)
+stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
 stateful' = statefulWith seq
 
 toList :: (forall t. Source t (Stream t a)) -> [a]
