@@ -13,12 +13,15 @@ module Data.Stream.Synchronous
     stateful',
     toList,
     toStream,
+    toCofree,
   )
 where
 
 import Control.Applicative (liftA2)
 import Control.Arrow ((&&&))
+import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
+import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Control.Monad.ST.Unsafe (unsafeInterleaveST)
 import Data.Bifunctor (first, second)
@@ -106,6 +109,16 @@ stateful = statefulWith (const id)
 
 stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
 stateful' = statefulWith seq
+
+toCofree :: Functor f => (forall t. SourceA f t (Stream t a)) -> Cofree f a
+toCofree source =
+  runST $ do
+    ~(stream, gather) <- runSourceA source
+    let xs =
+          liftA2 (:<) (runStream stream) $ do
+            process <- gather
+            unsafeDupableCollect (\scatter -> scatter *> xs) process
+    xs
 
 toList :: (forall t. Source t (Stream t a)) -> [a]
 toList source =
