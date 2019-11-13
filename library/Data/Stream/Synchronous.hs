@@ -2,7 +2,10 @@
 {-# LANGUAGE TupleSections #-}
 
 module Data.Stream.Synchronous
-  ( Stream,
+  ( -- * Stream views
+    Stream,
+
+    -- * Pure streams
     Source,
     fbyWith,
     fby,
@@ -10,6 +13,8 @@ module Data.Stream.Synchronous
     statefulWith,
     stateful,
     stateful',
+
+    -- * Effecting streams
     SourceA,
     fbyTWith,
     fbyT,
@@ -17,9 +22,11 @@ module Data.Stream.Synchronous
     statefulTWith,
     statefulT,
     statefulT',
+
+    -- * Stream interpreters
+    toCofree,
     toList,
     toStream,
-    toCofree,
   )
 where
 
@@ -35,6 +42,8 @@ import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 
 infixr 5 `fby`, `fby'`, `fbyT`, `fbyT'`
+
+-- * Stream views
 
 newtype Stream t a = Stream {runStream :: ST t a}
 
@@ -55,6 +64,8 @@ instance Monad (Stream t) where
 
 instance MonadFix (Stream t) where
   mfix f = Stream $ mfix $ runStream . f
+
+-- * Pure streams
 
 type Source t = SourceA t Identity
 
@@ -92,6 +103,8 @@ stateful = statefulWith (const id)
 stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
 stateful' = statefulWith seq
 
+-- * Effecting streams
+
 newtype SourceA t f a = SourceA {runSourceA :: ST t (a, ST t (f (ST t ())))}
 
 instance Functor (SourceA t f) where
@@ -114,6 +127,25 @@ instance Applicative f => Monad (SourceA t f) where
 
 instance Applicative f => MonadFix (SourceA t f) where
   mfix f = SourceA $ mfix $ runSourceA . f . fst
+
+fbyTWith ::
+  Functor f =>
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t (f a) ->
+  SourceA t f (Stream t a)
+fbyTWith before initial future =
+  SourceA $ (stream &&& gather) <$> newMutVar initial
+  where
+    stream = Stream . readMutVar
+    gather previous = fmap (scatter previous) <$> runStream future
+    scatter previous a = a `before` writeMutVar previous a
+
+fbyT :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
+fbyT = fbyTWith (const id)
+
+fbyT' :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
+fbyT' = fbyTWith seq
 
 statefulTWith ::
   Applicative f =>
@@ -138,24 +170,7 @@ statefulT' ::
   SourceA t f (Stream t a)
 statefulT' = statefulTWith seq
 
-fbyTWith ::
-  Functor f =>
-  (forall r. a -> r -> r) ->
-  a ->
-  Stream t (f a) ->
-  SourceA t f (Stream t a)
-fbyTWith before initial future =
-  SourceA $ (stream &&& gather) <$> newMutVar initial
-  where
-    stream = Stream . readMutVar
-    gather previous = fmap (scatter previous) <$> runStream future
-    scatter previous a = a `before` writeMutVar previous a
-
-fbyT :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
-fbyT = fbyTWith (const id)
-
-fbyT' :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
-fbyT' = fbyTWith seq
+-- * Stream interpreters
 
 accumulate ::
   Functor f =>
