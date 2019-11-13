@@ -48,6 +48,20 @@ infixl 4 `until`, `upon`
 
 newtype Stream t a = Stream {runStream :: ST t a}
 
+instance Num a => Num (Stream t a) where
+
+  (+) = liftA2 (+)
+
+  (-) = liftA2 (-)
+
+  (*) = liftA2 (*)
+
+  abs = fmap abs
+
+  signum = fmap signum
+
+  fromInteger = pure . fromInteger
+
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
 
