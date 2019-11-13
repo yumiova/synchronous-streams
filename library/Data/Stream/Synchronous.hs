@@ -127,7 +127,7 @@ statefulWith ::
   Stream t (a -> a) ->
   SourceA t f (Stream t a)
 statefulWith before initial step =
-  statefulTWith before initial ((\f -> pure . f) <$> step)
+  mfix $ \a -> fbyWith before initial (step <*> a)
 
 stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
 stateful = statefulWith (const id)
