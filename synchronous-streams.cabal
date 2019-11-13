@@ -23,6 +23,8 @@ library
   other-modules:    Control.Monad.Primitive.Unsafe
   hs-source-dirs:   library
   other-extensions:
+    FlexibleInstances
+    FunctionalDependencies
     RankNTypes
     TupleSections
     UnboxedTuples
