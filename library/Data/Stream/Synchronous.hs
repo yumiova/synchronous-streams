@@ -35,7 +35,7 @@ import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
-import Data.Bifunctor (first, second)
+import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
@@ -122,7 +122,7 @@ statefulA' = statefulAWith seq
 newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
 
 instance Functor (Source f t) where
-  fmap f = Source . fmap (first f) . runSource
+  fmap f = Source . fmap (bimap f id) . runSource
 
 instance Applicative f => Applicative (Source f t) where
 
