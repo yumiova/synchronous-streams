@@ -48,6 +48,9 @@ infixl 4 `until`, `upon`
 
 newtype Stream t a = Stream {runStream :: ST t a}
 
+instance Semigroup a => Semigroup (Stream t a) where
+  (<>) = liftA2 (<>)
+
 instance Num a => Num (Stream t a) where
 
   (+) = liftA2 (+)
