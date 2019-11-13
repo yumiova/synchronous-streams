@@ -51,6 +51,9 @@ newtype Stream t a = Stream {runStream :: ST t a}
 instance Semigroup a => Semigroup (Stream t a) where
   (<>) = liftA2 (<>)
 
+instance Monoid a => Monoid (Stream t a) where
+  mempty = pure mempty
+
 instance Num a => Num (Stream t a) where
 
   (+) = liftA2 (+)
