@@ -57,14 +57,14 @@ instance Monad (Stream t) where
 instance MonadFix (Stream t) where
   mfix f = Stream $ mfix $ runStream . f
 
-type Source = SourceA Identity
+type Source t = SourceA t Identity
 
-newtype SourceA f t a = SourceA {runSourceA :: ST t (a, ST t (f (ST t ())))}
+newtype SourceA t f a = SourceA {runSourceA :: ST t (a, ST t (f (ST t ())))}
 
-instance Functor (SourceA f t) where
+instance Functor (SourceA t f) where
   fmap f = SourceA . fmap (first f) . runSourceA
 
-instance Applicative f => Applicative (SourceA f t) where
+instance Applicative f => Applicative (SourceA t f) where
 
   pure = SourceA . pure . (,pure (pure mempty))
 
@@ -73,13 +73,13 @@ instance Applicative f => Applicative (SourceA f t) where
       merge ~(f, fgather) ~(a, gather) =
         (f a, liftA2 (liftA2 (<>)) fgather gather)
 
-instance Applicative f => Monad (SourceA f t) where
+instance Applicative f => Monad (SourceA t f) where
   lsource >>= f =
     SourceA $ do
       ~(a, lgather) <- runSourceA lsource
       second (liftA2 (liftA2 (<>)) lgather) <$> runSourceA (f a)
 
-instance Applicative f => MonadFix (SourceA f t) where
+instance Applicative f => MonadFix (SourceA t f) where
   mfix f = SourceA $ mfix $ runSourceA . f . fst
 
 fbyWith ::
@@ -87,13 +87,13 @@ fbyWith ::
   (forall r. a -> r -> r) ->
   a ->
   Stream t a ->
-  SourceA f t (Stream t a)
+  SourceA t f (Stream t a)
 fbyWith before initial future = fbyTWith before initial (pure <$> future)
 
-fby :: Applicative f => a -> Stream t a -> SourceA f t (Stream t a)
+fby :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
 fby = fbyWith (const id)
 
-fby' :: Applicative f => a -> Stream t a -> SourceA f t (Stream t a)
+fby' :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
 fby' = fbyWith seq
 
 fbyTWith ::
@@ -101,7 +101,7 @@ fbyTWith ::
   (forall r. a -> r -> r) ->
   a ->
   Stream t (f a) ->
-  SourceA f t (Stream t a)
+  SourceA t f (Stream t a)
 fbyTWith before initial future =
   SourceA $ (stream &&& gather) <$> newMutVar initial
   where
@@ -109,10 +109,10 @@ fbyTWith before initial future =
     gather previous = fmap (scatter previous) <$> runStream future
     scatter previous a = a `before` writeMutVar previous a
 
-fbyT :: Functor f => a -> Stream t (f a) -> SourceA f t (Stream t a)
+fbyT :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
 fbyT = fbyTWith (const id)
 
-fbyT' :: Functor f => a -> Stream t (f a) -> SourceA f t (Stream t a)
+fbyT' :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
 fbyT' = fbyTWith seq
 
 statefulWith ::
@@ -120,14 +120,14 @@ statefulWith ::
   (forall r. a -> r -> r) ->
   a ->
   Stream t (a -> a) ->
-  SourceA f t (Stream t a)
+  SourceA t f (Stream t a)
 statefulWith before initial step =
   statefulTWith before initial ((\f -> pure . f) <$> step)
 
-stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
+stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
 stateful = statefulWith (const id)
 
-stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA f t (Stream t a)
+stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
 stateful' = statefulWith seq
 
 statefulTWith ::
@@ -135,7 +135,7 @@ statefulTWith ::
   (forall r. a -> r -> r) ->
   a ->
   Stream t (a -> f a) ->
-  SourceA f t (Stream t a)
+  SourceA t f (Stream t a)
 statefulTWith before initial step =
   mfix $ \a -> fbyTWith before initial (step <*> a)
 
@@ -143,17 +143,17 @@ statefulT ::
   Applicative f =>
   a ->
   Stream t (a -> f a) ->
-  SourceA f t (Stream t a)
+  SourceA t f (Stream t a)
 statefulT = statefulTWith (const id)
 
 statefulT' ::
   Applicative f =>
   a ->
   Stream t (a -> f a) ->
-  SourceA f t (Stream t a)
+  SourceA t f (Stream t a)
 statefulT' = statefulTWith seq
 
-toCofree :: Functor f => (forall t. SourceA f t (Stream t a)) -> Cofree f a
+toCofree :: Functor f => (forall t. SourceA t f (Stream t a)) -> Cofree f a
 toCofree source =
   runST $ do
     ~(stream, gather) <- runSourceA source
