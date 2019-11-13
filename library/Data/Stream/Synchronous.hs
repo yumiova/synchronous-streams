@@ -62,6 +62,12 @@ instance Num a => Num (Stream t a) where
 
   fromInteger = pure . fromInteger
 
+instance Fractional a => Fractional (Stream t a) where
+
+  (/) = liftA2 (/)
+
+  fromRational = pure . fromRational
+
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
 
