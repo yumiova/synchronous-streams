@@ -39,6 +39,7 @@ import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
+import Data.String (IsString (fromString))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
 
@@ -101,6 +102,9 @@ instance Floating a => Floating (Stream t a) where
   acosh = fmap acosh
 
   atanh = fmap atanh
+
+instance IsString a => IsString (Stream t a) where
+  fromString = pure . fromString
 
 instance Semigroup a => Semigroup (Stream t a) where
   (<>) = liftA2 (<>)
