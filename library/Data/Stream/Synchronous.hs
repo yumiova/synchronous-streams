@@ -163,7 +163,7 @@ instance Applicative f => MonadUnordered t (Source f t) where
       gather previous = pure . scatter previous <$> runStream future
       scatter previous a = a `before` writeMutVar previous a
 
-  until source continue =
+  until source restart =
     Source $ do
       ~(originalStream, originalGather) <- runSource source
       previousStream <- newMutVar originalStream
@@ -173,7 +173,7 @@ instance Applicative f => MonadUnordered t (Source f t) where
               current <- readMutVar previousStream
               runStream current
           gather = do
-            condition <- runStream continue
+            condition <- runStream restart
             if condition
               then pure . scatter <$> runSource source
               else do
