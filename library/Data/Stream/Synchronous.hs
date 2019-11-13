@@ -8,7 +8,7 @@ module Data.Stream.Synchronous
     Stream,
 
     -- * Pure (unordered) streams
-    MonadUnordered (fbyWith, statefulWith),
+    MonadUnordered (first, fbyWith, statefulWith),
     fby,
     fby',
     stateful,
@@ -35,7 +35,7 @@ import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
-import Data.Bifunctor (first, second)
+import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
@@ -65,6 +65,8 @@ instance MonadFix (Stream t) where
 -- * Pure (unordered) streams
 
 class MonadFix m => MonadUnordered t m | m -> t where
+
+  first :: Stream t a -> m a
 
   fbyWith :: (forall r. a -> r -> r) -> a -> Stream t a -> m (Stream t a)
 
@@ -122,7 +124,7 @@ statefulA' = statefulAWith seq
 newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
 
 instance Functor (Source f t) where
-  fmap f = Source . fmap (first f) . runSource
+  fmap f = Source . fmap (bimap f id) . runSource
 
 instance Applicative f => Applicative (Source f t) where
 
@@ -143,6 +145,9 @@ instance Applicative f => MonadFix (Source f t) where
   mfix f = Source $ mfix $ runSource . f . fst
 
 instance Applicative f => MonadUnordered t (Source f t) where
+
+  first = Source . fmap (,pure (pure mempty)) . runStream
+
   fbyWith before initial future =
     Source $ (stream &&& gather) <$> newMutVar initial
     where
