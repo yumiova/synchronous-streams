@@ -68,6 +68,34 @@ instance Fractional a => Fractional (Stream t a) where
 
   fromRational = pure . fromRational
 
+instance Floating a => Floating (Stream t a) where
+
+  pi = pure pi
+
+  exp = fmap exp
+
+  log = fmap log
+
+  sin = fmap sin
+
+  cos = fmap cos
+
+  asin = fmap asin
+
+  acos = fmap acos
+
+  atan = fmap atan
+
+  sinh = fmap sinh
+
+  cosh = fmap cosh
+
+  asinh = fmap asinh
+
+  acosh = fmap acosh
+
+  atanh = fmap atanh
+
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
 
