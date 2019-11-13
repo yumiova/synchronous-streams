@@ -88,7 +88,12 @@ fbyWith ::
   a ->
   Stream t a ->
   SourceA t f (Stream t a)
-fbyWith before initial future = fbyTWith before initial (pure <$> future)
+fbyWith before initial future =
+  SourceA $ (stream &&& gather) <$> newMutVar initial
+  where
+    stream = Stream . readMutVar
+    gather previous = pure . scatter previous <$> runStream future
+    scatter previous a = a `before` writeMutVar previous a
 
 fby :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
 fby = fbyWith (const id)
