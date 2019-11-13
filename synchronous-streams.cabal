@@ -16,13 +16,16 @@ library
   exposed-modules:  Data.Stream.Synchronous
   build-depends:
       base       >=4.12.0.0 && <4.13
+    , free       >=5.1.2    && <5.2
     , primitive  >=0.6.4.0  && <0.7
     , streams    >=3.3      && <3.4
 
+  other-modules:    Control.Monad.Primitive.Unsafe
   hs-source-dirs:   library
   other-extensions:
     RankNTypes
     TupleSections
+    UnboxedTuples
 
   ghc-options:
     -Wall -Wcompat -Wincomplete-uni-patterns

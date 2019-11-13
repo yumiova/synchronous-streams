@@ -4,27 +4,37 @@
 module Data.Stream.Synchronous
   ( Stream,
     Source,
+    SourceA,
     fbyWith,
     fby,
     fby',
+    fbyTWith,
+    fbyT,
+    fbyT',
     statefulWith,
     stateful,
     stateful',
+    statefulTWith,
+    statefulT,
+    statefulT',
     toList,
     toStream,
+    toCofree,
   )
 where
 
 import Control.Applicative (liftA2)
 import Control.Arrow ((&&&))
+import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
+import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
-import Control.Monad.ST.Unsafe (unsafeInterleaveST)
 import Data.Bifunctor (first, second)
+import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 
-infixr 5 `fby`, `fby'`
+infixr 5 `fby`, `fby'`, `fbyT`, `fbyT'`
 
 newtype Stream t a = Stream {runStream :: ST t a}
 
@@ -46,72 +56,125 @@ instance Monad (Stream t) where
 instance MonadFix (Stream t) where
   mfix f = Stream $ mfix $ runStream . f
 
-newtype Source t a = Source {runSource :: ST t (a, ST t (ST t ()))}
+type Source t = SourceA t Identity
 
-instance Functor (Source t) where
-  fmap f = Source . fmap (first f) . runSource
+newtype SourceA t f a = SourceA {runSourceA :: ST t (a, ST t (f (ST t ())))}
 
-instance Applicative (Source t) where
+instance Functor (SourceA t f) where
+  fmap f = SourceA . fmap (first f) . runSourceA
 
-  pure = Source . pure . (,mempty)
+instance Applicative f => Applicative (SourceA t f) where
 
-  (<*>) fsource = Source . liftA2 merge (runSource fsource) . runSource
+  pure = SourceA . pure . (,pure (pure mempty))
+
+  (<*>) fsource = SourceA . liftA2 merge (runSourceA fsource) . runSourceA
     where
-      merge ~(f, fgather) ~(a, gather) = (f a, fgather <> gather)
+      merge ~(f, fgather) ~(a, gather) =
+        (f a, liftA2 (liftA2 (<>)) fgather gather)
 
-instance Monad (Source t) where
+instance Applicative f => Monad (SourceA t f) where
   lsource >>= f =
-    Source $ do
-      ~(a, lgather) <- runSource lsource
-      second (lgather <>) <$> runSource (f a)
+    SourceA $ do
+      ~(a, lgather) <- runSourceA lsource
+      second (liftA2 (liftA2 (<>)) lgather) <$> runSourceA (f a)
 
-instance MonadFix (Source t) where
-  mfix f = Source $ mfix $ runSource . f . fst
+instance Applicative f => MonadFix (SourceA t f) where
+  mfix f = SourceA $ mfix $ runSourceA . f . fst
 
-fbyWith :: (forall r. a -> r -> r) -> a -> Stream t a -> Source t (Stream t a)
+fbyWith ::
+  Applicative f =>
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t a ->
+  SourceA t f (Stream t a)
 fbyWith before initial future =
-  Source $ (stream &&& gather) <$> newMutVar initial
+  SourceA $ (stream &&& gather) <$> newMutVar initial
   where
     stream = Stream . readMutVar
-    gather previous = scatter previous <$> runStream future
+    gather previous = pure . scatter previous <$> runStream future
     scatter previous a = a `before` writeMutVar previous a
 
-fby :: a -> Stream t a -> Source t (Stream t a)
+fby :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
 fby = fbyWith (const id)
 
-fby' :: a -> Stream t a -> Source t (Stream t a)
+fby' :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
 fby' = fbyWith seq
 
+fbyTWith ::
+  Functor f =>
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t (f a) ->
+  SourceA t f (Stream t a)
+fbyTWith before initial future =
+  SourceA $ (stream &&& gather) <$> newMutVar initial
+  where
+    stream = Stream . readMutVar
+    gather previous = fmap (scatter previous) <$> runStream future
+    scatter previous a = a `before` writeMutVar previous a
+
+fbyT :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
+fbyT = fbyTWith (const id)
+
+fbyT' :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
+fbyT' = fbyTWith seq
+
 statefulWith ::
+  Applicative f =>
   (forall r. a -> r -> r) ->
   a ->
   Stream t (a -> a) ->
-  Source t (Stream t a)
+  SourceA t f (Stream t a)
 statefulWith before initial step =
   mfix $ \a -> fbyWith before initial (step <*> a)
 
-stateful :: a -> Stream t (a -> a) -> Source t (Stream t a)
+stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
 stateful = statefulWith (const id)
 
-stateful' :: a -> Stream t (a -> a) -> Source t (Stream t a)
+stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
 stateful' = statefulWith seq
 
-toList :: (forall t. Source t (Stream t a)) -> [a]
-toList source =
+statefulTWith ::
+  Applicative f =>
+  (forall r. a -> r -> r) ->
+  a ->
+  Stream t (a -> f a) ->
+  SourceA t f (Stream t a)
+statefulTWith before initial step =
+  mfix $ \a -> fbyTWith before initial (step <*> a)
+
+statefulT ::
+  Applicative f =>
+  a ->
+  Stream t (a -> f a) ->
+  SourceA t f (Stream t a)
+statefulT = statefulTWith (const id)
+
+statefulT' ::
+  Applicative f =>
+  a ->
+  Stream t (a -> f a) ->
+  SourceA t f (Stream t a)
+statefulT' = statefulTWith seq
+
+accumulate ::
+  Functor f =>
+  (a -> f b -> b) ->
+  (forall t. SourceA t f (Stream t a)) ->
+  b
+accumulate f source =
   runST $ do
-    ~(stream, gather) <- runSource source
+    ~(stream, gather) <- runSourceA source
     let xs = do
-          scatter <- gather
-          scatter
-          liftA2 (:) (runStream stream) (unsafeInterleaveST xs)
-    liftA2 (:) (runStream stream) (unsafeInterleaveST xs)
+          process <- gather
+          liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
+    xs
+
+toCofree :: Functor f => (forall t. SourceA t f (Stream t a)) -> Cofree f a
+toCofree = accumulate (:<)
+
+toList :: (forall t. Source t (Stream t a)) -> [a]
+toList = accumulate (\a -> (a :) . runIdentity)
 
 toStream :: (forall t. Source t (Stream t a)) -> Infinite.Stream a
-toStream source =
-  runST $ do
-    ~(stream, gather) <- runSource source
-    let xs = do
-          scatter <- gather
-          scatter
-          liftA2 (Infinite.:>) (runStream stream) (unsafeInterleaveST xs)
-    liftA2 (Infinite.:>) (runStream stream) (unsafeInterleaveST xs)
+toStream = accumulate (\a -> (a Infinite.:>) . runIdentity)
