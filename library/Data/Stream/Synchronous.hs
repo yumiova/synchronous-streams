@@ -54,12 +54,6 @@ instance Bounded a => Bounded (Stream t a) where
 
   maxBound = pure maxBound
 
-instance Semigroup a => Semigroup (Stream t a) where
-  (<>) = liftA2 (<>)
-
-instance Monoid a => Monoid (Stream t a) where
-  mempty = pure mempty
-
 instance Num a => Num (Stream t a) where
 
   (+) = liftA2 (+)
@@ -107,6 +101,12 @@ instance Floating a => Floating (Stream t a) where
   acosh = fmap acosh
 
   atanh = fmap atanh
+
+instance Semigroup a => Semigroup (Stream t a) where
+  (<>) = liftA2 (<>)
+
+instance Monoid a => Monoid (Stream t a) where
+  mempty = pure mempty
 
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
