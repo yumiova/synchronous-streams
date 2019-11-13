@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -5,25 +7,23 @@ module Data.Stream.Synchronous
   ( -- * Stream views
     Stream,
 
-    -- * Pure streams
-    Source,
-    fbyWith,
+    -- * Pure (unordered) streams
+    MonadUnordered (fbyWith, statefulWith),
     fby,
     fby',
-    statefulWith,
     stateful,
     stateful',
 
-    -- * Effecting streams
-    SourceA,
-    fbyTWith,
-    fbyT,
-    fbyT',
-    statefulTWith,
-    statefulT,
-    statefulT',
+    -- * Effecting (ordered) streams
+    MonadOrdered (fbyAWith, statefulAWith),
+    fbyA,
+    fbyA',
+    statefulA,
+    statefulA',
 
-    -- * Stream interpreters
+    -- * Untransformed streams
+    Source,
+    accumulate,
     toCofree,
     toList,
     toStream,
@@ -40,8 +40,6 @@ import Data.Bifunctor (first, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
-
-infixr 5 `fby`, `fby'`, `fbyT`, `fbyT'`
 
 -- * Stream views
 
@@ -65,131 +63,120 @@ instance Monad (Stream t) where
 instance MonadFix (Stream t) where
   mfix f = Stream $ mfix $ runStream . f
 
--- * Pure streams
+-- * Pure (unordered) streams
 
-type Source t = SourceA t Identity
+class MonadFix m => MonadUnordered t m | m -> t where
 
-fbyWith ::
-  Applicative f =>
-  (forall r. a -> r -> r) ->
-  a ->
-  Stream t a ->
-  SourceA t f (Stream t a)
-fbyWith before initial future =
-  SourceA $ (stream &&& gather) <$> newMutVar initial
-  where
-    stream = Stream . readMutVar
-    gather previous = pure . scatter previous <$> runStream future
-    scatter previous a = a `before` writeMutVar previous a
+  fbyWith :: (forall r. a -> r -> r) -> a -> Stream t a -> m (Stream t a)
 
-fby :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
+  statefulWith ::
+    (forall r. a -> r -> r) ->
+    a ->
+    Stream t (a -> a) ->
+    m (Stream t a)
+  statefulWith before initial step =
+    mfix $ \a -> fbyWith before initial (step <*> a)
+
+fby :: MonadUnordered t m => a -> Stream t a -> m (Stream t a)
 fby = fbyWith (const id)
 
-fby' :: Applicative f => a -> Stream t a -> SourceA t f (Stream t a)
+fby' :: MonadUnordered t m => a -> Stream t a -> m (Stream t a)
 fby' = fbyWith seq
 
-statefulWith ::
-  Applicative f =>
-  (forall r. a -> r -> r) ->
-  a ->
-  Stream t (a -> a) ->
-  SourceA t f (Stream t a)
-statefulWith before initial step =
-  mfix $ \a -> fbyWith before initial (step <*> a)
-
-stateful :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
+stateful :: MonadUnordered t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful = statefulWith (const id)
 
-stateful' :: Applicative f => a -> Stream t (a -> a) -> SourceA t f (Stream t a)
+stateful' :: MonadUnordered t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful' = statefulWith seq
 
--- * Effecting streams
+-- * Effecting (ordered) streams
 
-newtype SourceA t f a = SourceA {runSourceA :: ST t (a, ST t (f (ST t ())))}
+class
+  (Applicative f, MonadUnordered t m) =>
+  MonadOrdered f t m
+    | m -> f t where
 
-instance Functor (SourceA t f) where
-  fmap f = SourceA . fmap (first f) . runSourceA
+  fbyAWith :: (forall r. a -> r -> r) -> a -> Stream t (f a) -> m (Stream t a)
 
-instance Applicative f => Applicative (SourceA t f) where
+  statefulAWith ::
+    (forall r. a -> r -> r) ->
+    a ->
+    Stream t (a -> f a) ->
+    m (Stream t a)
+  statefulAWith before initial step =
+    mfix $ \a -> fbyAWith before initial (step <*> a)
 
-  pure = SourceA . pure . (,pure (pure mempty))
+fbyA :: MonadOrdered f t m => a -> Stream t (f a) -> m (Stream t a)
+fbyA = fbyAWith (const id)
 
-  (<*>) fsource = SourceA . liftA2 merge (runSourceA fsource) . runSourceA
+fbyA' :: MonadOrdered f t m => a -> Stream t (f a) -> m (Stream t a)
+fbyA' = fbyAWith seq
+
+statefulA :: MonadOrdered f t m => a -> Stream t (a -> f a) -> m (Stream t a)
+statefulA = statefulAWith (const id)
+
+statefulA' :: MonadOrdered f t m => a -> Stream t (a -> f a) -> m (Stream t a)
+statefulA' = statefulAWith seq
+
+-- * Untransformed streams
+
+newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
+
+instance Functor (Source f t) where
+  fmap f = Source . fmap (first f) . runSource
+
+instance Applicative f => Applicative (Source f t) where
+
+  pure = Source . pure . (,pure (pure mempty))
+
+  (<*>) fsource = Source . liftA2 merge (runSource fsource) . runSource
     where
       merge ~(f, fgather) ~(a, gather) =
         (f a, liftA2 (liftA2 (<>)) fgather gather)
 
-instance Applicative f => Monad (SourceA t f) where
+instance Applicative f => Monad (Source f t) where
   lsource >>= f =
-    SourceA $ do
-      ~(a, lgather) <- runSourceA lsource
-      second (liftA2 (liftA2 (<>)) lgather) <$> runSourceA (f a)
+    Source $ do
+      ~(a, lgather) <- runSource lsource
+      second (liftA2 (liftA2 (<>)) lgather) <$> runSource (f a)
 
-instance Applicative f => MonadFix (SourceA t f) where
-  mfix f = SourceA $ mfix $ runSourceA . f . fst
+instance Applicative f => MonadFix (Source f t) where
+  mfix f = Source $ mfix $ runSource . f . fst
 
-fbyTWith ::
-  Functor f =>
-  (forall r. a -> r -> r) ->
-  a ->
-  Stream t (f a) ->
-  SourceA t f (Stream t a)
-fbyTWith before initial future =
-  SourceA $ (stream &&& gather) <$> newMutVar initial
-  where
-    stream = Stream . readMutVar
-    gather previous = fmap (scatter previous) <$> runStream future
-    scatter previous a = a `before` writeMutVar previous a
+instance Applicative f => MonadUnordered t (Source f t) where
+  fbyWith before initial future =
+    Source $ (stream &&& gather) <$> newMutVar initial
+    where
+      stream = Stream . readMutVar
+      gather previous = pure . scatter previous <$> runStream future
+      scatter previous a = a `before` writeMutVar previous a
 
-fbyT :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
-fbyT = fbyTWith (const id)
-
-fbyT' :: Functor f => a -> Stream t (f a) -> SourceA t f (Stream t a)
-fbyT' = fbyTWith seq
-
-statefulTWith ::
-  Applicative f =>
-  (forall r. a -> r -> r) ->
-  a ->
-  Stream t (a -> f a) ->
-  SourceA t f (Stream t a)
-statefulTWith before initial step =
-  mfix $ \a -> fbyTWith before initial (step <*> a)
-
-statefulT ::
-  Applicative f =>
-  a ->
-  Stream t (a -> f a) ->
-  SourceA t f (Stream t a)
-statefulT = statefulTWith (const id)
-
-statefulT' ::
-  Applicative f =>
-  a ->
-  Stream t (a -> f a) ->
-  SourceA t f (Stream t a)
-statefulT' = statefulTWith seq
-
--- * Stream interpreters
+instance Applicative f => MonadOrdered f t (Source f t) where
+  fbyAWith before initial future =
+    Source $ (stream &&& gather) <$> newMutVar initial
+    where
+      stream = Stream . readMutVar
+      gather previous = fmap (scatter previous) <$> runStream future
+      scatter previous a = a `before` writeMutVar previous a
 
 accumulate ::
   Functor f =>
   (a -> f b -> b) ->
-  (forall t. SourceA t f (Stream t a)) ->
+  (forall t. Source f t (Stream t a)) ->
   b
 accumulate f source =
   runST $ do
-    ~(stream, gather) <- runSourceA source
+    ~(stream, gather) <- runSource source
     let xs = do
           process <- gather
           liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
-toCofree :: Functor f => (forall t. SourceA t f (Stream t a)) -> Cofree f a
+toCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
 toCofree = accumulate (:<)
 
-toList :: (forall t. Source t (Stream t a)) -> [a]
+toList :: (forall t. Source Identity t (Stream t a)) -> [a]
 toList = accumulate (\a -> (a :) . runIdentity)
 
-toStream :: (forall t. Source t (Stream t a)) -> Infinite.Stream a
+toStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
 toStream = accumulate (\a -> (a Infinite.:>) . runIdentity)
