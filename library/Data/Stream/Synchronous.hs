@@ -40,6 +40,8 @@ import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 
+infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
+
 -- * Stream views
 
 newtype Stream t a = Stream {runStream :: ST t a}
