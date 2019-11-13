@@ -29,7 +29,6 @@ import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
-import Control.Monad.ST.Unsafe (unsafeInterleaveST)
 import Data.Bifunctor (first, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
@@ -158,33 +157,24 @@ statefulT' ::
   SourceA t f (Stream t a)
 statefulT' = statefulTWith seq
 
-toCofree :: Functor f => (forall t. SourceA t f (Stream t a)) -> Cofree f a
-toCofree source =
+accumulate ::
+  Functor f =>
+  (a -> f b -> b) ->
+  (forall t. SourceA t f (Stream t a)) ->
+  b
+accumulate f source =
   runST $ do
     ~(stream, gather) <- runSourceA source
     let xs = do
           process <- gather
-          liftA2 (:<) (runStream stream) (unsafeDupableCollect (*> xs) process)
+          liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
+toCofree :: Functor f => (forall t. SourceA t f (Stream t a)) -> Cofree f a
+toCofree = accumulate (:<)
+
 toList :: (forall t. Source t (Stream t a)) -> [a]
-toList source =
-  runST $ do
-    ~(stream, gather) <- runSourceA source
-    let xs = do
-          process <- gather
-          let scatter = runIdentity process
-          scatter
-          liftA2 (:) (runStream stream) (unsafeInterleaveST xs)
-    liftA2 (:) (runStream stream) (unsafeInterleaveST xs)
+toList = accumulate (\a -> (a :) . runIdentity)
 
 toStream :: (forall t. Source t (Stream t a)) -> Infinite.Stream a
-toStream source =
-  runST $ do
-    ~(stream, gather) <- runSourceA source
-    let xs = do
-          process <- gather
-          let scatter = runIdentity process
-          scatter
-          liftA2 (Infinite.:>) (runStream stream) (unsafeInterleaveST xs)
-    liftA2 (Infinite.:>) (runStream stream) (unsafeInterleaveST xs)
+toStream = accumulate (\a -> (a Infinite.:>) . runIdentity)
