@@ -23,10 +23,9 @@ module Data.Stream.Synchronous
 
     -- * Untransformed streams
     Source,
-    accumulate,
-    toCofree,
-    toList,
-    toStream,
+    runAsCofree,
+    runAsList,
+    runAsStream,
   )
 where
 
@@ -159,12 +158,12 @@ instance Applicative f => MonadOrdered f t (Source f t) where
       gather previous = fmap (scatter previous) <$> runStream future
       scatter previous a = a `before` writeMutVar previous a
 
-accumulate ::
+runWith ::
   Functor f =>
   (a -> f b -> b) ->
   (forall t. Source f t (Stream t a)) ->
   b
-accumulate f source =
+runWith f source =
   runST $ do
     ~(stream, gather) <- runSource source
     let xs = do
@@ -172,11 +171,11 @@ accumulate f source =
           liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
-toCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
-toCofree = accumulate (:<)
+runAsCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
+runAsCofree = runWith (:<)
 
-toList :: (forall t. Source Identity t (Stream t a)) -> [a]
-toList = accumulate (\a -> (a :) . runIdentity)
+runAsList :: (forall t. Source Identity t (Stream t a)) -> [a]
+runAsList = runWith (\a -> (a :) . runIdentity)
 
-toStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
-toStream = accumulate (\a -> (a Infinite.:>) . runIdentity)
+runAsStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
+runAsStream = runWith (\a -> (a Infinite.:>) . runIdentity)
