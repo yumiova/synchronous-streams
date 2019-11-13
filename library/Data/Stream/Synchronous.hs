@@ -8,7 +8,7 @@ module Data.Stream.Synchronous
     Stream,
 
     -- * Pure (unordered) streams
-    MonadUnordered (first, fbyWith, statefulWith),
+    MonadUnordered (first, fbyWith, statefulWith, until),
     fby,
     fby',
     stateful,
@@ -41,6 +41,8 @@ import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
+
+infixl 4 `until`
 
 -- * Stream views
 
@@ -79,6 +81,8 @@ class MonadFix m => MonadUnordered t m | m -> t where
     m (Stream t a)
   statefulWith before initial step =
     mfix $ \a -> fbyWith before initial (step <*> a)
+
+  until :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
 
 fby :: MonadUnordered t m => a -> Stream t a -> m (Stream t a)
 fby = fbyWith (const id)
@@ -156,6 +160,27 @@ instance Applicative f => MonadUnordered t (Source f t) where
       stream = Stream . readMutVar
       gather previous = pure . scatter previous <$> runStream future
       scatter previous a = a `before` writeMutVar previous a
+
+  until source continue =
+    Source $ do
+      ~(originalStream, originalGather) <- runSource source
+      previousStream <- newMutVar originalStream
+      previousGather <- newMutVar originalGather
+      let stream =
+            Stream $ do
+              current <- readMutVar previousStream
+              runStream current
+          gather = do
+            condition <- runStream continue
+            if condition
+              then pure . scatter <$> runSource source
+              else do
+                current <- readMutVar previousGather
+                current
+          scatter ~(newStream, newGather) = do
+            writeMutVar previousStream newStream
+            writeMutVar previousGather newGather
+      pure (stream, gather)
 
 instance Applicative f => MonadOrdered f t (Source f t) where
   fbyAWith before initial future =
