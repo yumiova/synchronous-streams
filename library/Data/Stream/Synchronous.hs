@@ -346,3 +346,6 @@ instance Applicative f => Monad (SourceIO f t) where
     SourceIO $ do
       ~(a, lgather) <- runSourceIO lsource
       second (liftA2 (liftA2 (<>)) lgather) <$> runSourceIO (f a)
+
+instance Applicative f => MonadFix (SourceIO f t) where
+  mfix f = SourceIO $ mfix $ runSourceIO . f . fst
