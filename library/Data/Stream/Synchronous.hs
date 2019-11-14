@@ -43,6 +43,7 @@ import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 import Data.String (IsString (fromString))
+import Data.VectorSpace (VectorSpace ((*^), Scalar))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
 
@@ -132,6 +133,12 @@ instance AffineSpace a => AffineSpace (Stream t a) where
   (.-.) = liftA2 (.-.)
 
   (.+^) = liftA2 (.+^)
+
+instance VectorSpace a => VectorSpace (Stream t a) where
+
+  type Scalar (Stream t a) = Stream t (Scalar a)
+
+  (*^) = liftA2 (*^)
 
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
