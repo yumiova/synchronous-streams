@@ -39,6 +39,7 @@ import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
+import Data.String (IsString (fromString))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
 
@@ -47,6 +48,69 @@ infixl 4 `until`, `upon`
 -- * Stream views
 
 newtype Stream t a = Stream {runStream :: ST t a}
+
+instance Bounded a => Bounded (Stream t a) where
+
+  minBound = pure minBound
+
+  maxBound = pure maxBound
+
+instance Num a => Num (Stream t a) where
+
+  (+) = liftA2 (+)
+
+  (-) = liftA2 (-)
+
+  (*) = liftA2 (*)
+
+  abs = fmap abs
+
+  signum = fmap signum
+
+  fromInteger = pure . fromInteger
+
+instance Fractional a => Fractional (Stream t a) where
+
+  (/) = liftA2 (/)
+
+  fromRational = pure . fromRational
+
+instance Floating a => Floating (Stream t a) where
+
+  pi = pure pi
+
+  exp = fmap exp
+
+  log = fmap log
+
+  sin = fmap sin
+
+  cos = fmap cos
+
+  asin = fmap asin
+
+  acos = fmap acos
+
+  atan = fmap atan
+
+  sinh = fmap sinh
+
+  cosh = fmap cosh
+
+  asinh = fmap asinh
+
+  acosh = fmap acosh
+
+  atanh = fmap atanh
+
+instance IsString a => IsString (Stream t a) where
+  fromString = pure . fromString
+
+instance Semigroup a => Semigroup (Stream t a) where
+  (<>) = liftA2 (<>)
+
+instance Monoid a => Monoid (Stream t a) where
+  mempty = pure mempty
 
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
