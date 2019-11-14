@@ -27,6 +27,9 @@ module Data.Stream.Synchronous
     runAsCofree,
     runAsList,
     runAsStream,
+
+    -- * I/O transformed streams
+    SourceIO,
   )
 where
 
@@ -34,6 +37,7 @@ import Control.Applicative (liftA2)
 import Control.Arrow ((&&&))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
+import Control.Monad.Primitive (RealWorld)
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
@@ -316,3 +320,10 @@ runAsList = runWith (\a -> (a :) . runIdentity)
 
 runAsStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
 runAsStream = runWith (\a -> (a Infinite.:>) . runIdentity)
+
+-- * I/O transformed streams
+
+newtype SourceIO f t a
+  = SourceIO
+      { runSourceIO :: t ~ RealWorld => ST t (a, ST t (f (ST t ())))
+      }
