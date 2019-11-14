@@ -35,6 +35,7 @@ import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
+import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
 import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
@@ -111,6 +112,16 @@ instance Semigroup a => Semigroup (Stream t a) where
 
 instance Monoid a => Monoid (Stream t a) where
   mempty = pure mempty
+
+instance AdditiveGroup a => AdditiveGroup (Stream t a) where
+
+  zeroV = pure zeroV
+
+  (^+^) = liftA2 (^+^)
+
+  negateV = fmap negateV
+
+  (^-^) = liftA2 (^-^)
 
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
