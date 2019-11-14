@@ -2,6 +2,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Data.Stream.Synchronous
   ( -- * Stream views
@@ -35,11 +36,14 @@ import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
+import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
+import Data.AffineSpace (AffineSpace ((.+^), (.-.), Diff))
 import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 import Data.String (IsString (fromString))
+import Data.VectorSpace (InnerSpace ((<.>)), VectorSpace ((*^), Scalar))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
 
@@ -111,6 +115,33 @@ instance Semigroup a => Semigroup (Stream t a) where
 
 instance Monoid a => Monoid (Stream t a) where
   mempty = pure mempty
+
+instance AdditiveGroup a => AdditiveGroup (Stream t a) where
+
+  zeroV = pure zeroV
+
+  (^+^) = liftA2 (^+^)
+
+  negateV = fmap negateV
+
+  (^-^) = liftA2 (^-^)
+
+instance AffineSpace a => AffineSpace (Stream t a) where
+
+  type Diff (Stream t a) = Stream t (Diff a)
+
+  (.-.) = liftA2 (.-.)
+
+  (.+^) = liftA2 (.+^)
+
+instance VectorSpace a => VectorSpace (Stream t a) where
+
+  type Scalar (Stream t a) = Stream t (Scalar a)
+
+  (*^) = liftA2 (*^)
+
+instance InnerSpace a => InnerSpace (Stream t a) where
+  (<.>) = liftA2 (<.>)
 
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
