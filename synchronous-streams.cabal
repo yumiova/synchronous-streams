@@ -28,6 +28,7 @@ library
     FunctionalDependencies
     RankNTypes
     TupleSections
+    TypeFamilies
     UnboxedTuples
 
   ghc-options:
