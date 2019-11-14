@@ -327,3 +327,22 @@ newtype SourceIO f t a
   = SourceIO
       { runSourceIO :: t ~ RealWorld => ST t (a, ST t (f (ST t ())))
       }
+
+instance Functor (SourceIO f t) where
+  fmap f source = SourceIO $ bimap f id <$> runSourceIO source
+
+instance Applicative f => Applicative (SourceIO f t) where
+
+  pure a = SourceIO $ pure (a, pure (pure mempty))
+
+  fsource <*> source =
+    SourceIO $ liftA2 merge (runSourceIO fsource) (runSourceIO source)
+    where
+      merge ~(f, fgather) ~(a, gather) =
+        (f a, liftA2 (liftA2 (<>)) fgather gather)
+
+instance Applicative f => Monad (SourceIO f t) where
+  lsource >>= f =
+    SourceIO $ do
+      ~(a, lgather) <- runSourceIO lsource
+      second (liftA2 (liftA2 (<>)) lgather) <$> runSourceIO (f a)
