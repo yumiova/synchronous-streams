@@ -2,6 +2,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Data.Stream.Synchronous
   ( -- * Stream views
@@ -36,6 +37,7 @@ import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
+import Data.AffineSpace (AffineSpace ((.+^), (.-.), Diff))
 import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
@@ -122,6 +124,14 @@ instance AdditiveGroup a => AdditiveGroup (Stream t a) where
   negateV = fmap negateV
 
   (^-^) = liftA2 (^-^)
+
+instance AffineSpace a => AffineSpace (Stream t a) where
+
+  type Diff (Stream t a) = Stream t (Diff a)
+
+  (.-.) = liftA2 (.-.)
+
+  (.+^) = liftA2 (.+^)
 
 instance Functor (Stream t) where
   fmap f = Stream . fmap f . runStream
