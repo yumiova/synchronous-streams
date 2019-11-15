@@ -27,6 +27,11 @@ module Data.Stream.Synchronous
     runAsCofree,
     runAsList,
     runAsStream,
+
+    -- * I/O transformed streams
+    SourceIO,
+    ioToCofree,
+    ioToList,
   )
 where
 
@@ -34,6 +39,13 @@ import Control.Applicative (liftA2)
 import Control.Arrow ((&&&))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Primitive
+  ( PrimMonad (PrimState, primitive),
+    RealWorld,
+    ioToPrim,
+    primToIO,
+  )
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
@@ -316,3 +328,118 @@ runAsList = runWith (\a -> (a :) . runIdentity)
 
 runAsStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
 runAsStream = runWith (\a -> (a Infinite.:>) . runIdentity)
+
+-- * I/O transformed streams
+
+newtype SourceIO f t a
+  = SourceIO
+      { runSourceIO :: t ~ RealWorld => ST t (a, ST t (f (ST t ())))
+      }
+
+instance Functor (SourceIO f t) where
+  fmap f source = SourceIO $ bimap f id <$> runSourceIO source
+
+instance Applicative f => Applicative (SourceIO f t) where
+
+  pure a = SourceIO $ pure (a, pure (pure mempty))
+
+  fsource <*> source =
+    SourceIO $ liftA2 merge (runSourceIO fsource) (runSourceIO source)
+    where
+      merge ~(f, fgather) ~(a, gather) =
+        (f a, liftA2 (liftA2 (<>)) fgather gather)
+
+instance Applicative f => Monad (SourceIO f t) where
+  lsource >>= f =
+    SourceIO $ do
+      ~(a, lgather) <- runSourceIO lsource
+      second (liftA2 (liftA2 (<>)) lgather) <$> runSourceIO (f a)
+
+instance Applicative f => MonadFix (SourceIO f t) where
+  mfix f = SourceIO $ mfix $ runSourceIO . f . fst
+
+instance Applicative f => MonadIO (SourceIO f t) where
+  liftIO action = SourceIO $ (,pure (pure mempty)) <$> ioToPrim action
+
+instance Applicative f => PrimMonad (SourceIO f t) where
+
+  type PrimState (SourceIO f t) = RealWorld
+
+  primitive f = SourceIO $ (,pure (pure mempty)) <$> primitive f
+
+instance MonadIO f => MonadUnordered t (SourceIO f t) where
+
+  first stream = SourceIO $ (,pure (pure mempty)) <$> runStream stream
+
+  fbyWith before initial future =
+    SourceIO $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process = pure . scatter
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
+
+  until source restart =
+    SourceIO $ do
+      ~(originalStream, originalGather) <- runSourceIO source
+      previousStream <- newMutVar originalStream
+      previousGather <- newMutVar originalGather
+      let stream =
+            Stream $ do
+              current <- readMutVar previousStream
+              runStream current
+          gather = do
+            condition <- runStream restart
+            if condition
+              then pure process
+              else do
+                current <- readMutVar previousGather
+                current
+          process = scatter <$> liftIO (primToIO (runSourceIO source))
+          scatter ~(newStream, newGather) = do
+            writeMutVar previousStream newStream
+            writeMutVar previousGather newGather
+      pure (stream, gather)
+
+  upon source continue =
+    SourceIO $ do
+      ~(stream, original) <- runSourceIO source
+      let gather = do
+            condition <- runStream continue
+            if condition
+              then original
+              else pure (pure mempty)
+      pure (stream, gather)
+
+instance MonadIO f => MonadOrdered f t (SourceIO f t) where
+  fbyAWith before initial future =
+    SourceIO $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process = fmap scatter
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
+
+runIOWith ::
+  (MonadIO m, Functor f) =>
+  (a -> f b -> b) ->
+  (forall t. SourceIO f t (Stream t a)) ->
+  m b
+runIOWith f source =
+  liftIO $ primToIO $ do
+    ~(stream, gather) <- runSourceIO source
+    let xs = do
+          process <- gather
+          liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
+    xs
+
+ioToCofree ::
+  (MonadIO m, Functor f) =>
+  (forall t. SourceIO f t (Stream t a)) ->
+  m (Cofree f a)
+ioToCofree = runIOWith (:<)
+
+ioToList :: MonadIO m => (forall t. SourceIO Identity t (Stream t a)) -> m [a]
+ioToList = runIOWith (\a -> (a :) . runIdentity)
