@@ -30,6 +30,7 @@ module Data.Stream.Synchronous
 
     -- * I/O transformed streams
     SourceIO,
+    ioToCofree,
   )
 where
 
@@ -405,3 +406,22 @@ instance MonadIO f => MonadOrdered f t (SourceIO f t) where
           process = fmap scatter
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
+
+runIOWith ::
+  (MonadIO m, Functor f) =>
+  (a -> f b -> b) ->
+  (forall t. SourceIO f t (Stream t a)) ->
+  m b
+runIOWith f source =
+  liftIO $ primToIO $ do
+    ~(stream, gather) <- runSourceIO source
+    let xs = do
+          process <- gather
+          liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
+    xs
+
+ioToCofree ::
+  (MonadIO m, Functor f) =>
+  (forall t. SourceIO f t (Stream t a)) ->
+  m (Cofree f a)
+ioToCofree = runIOWith (:<)
