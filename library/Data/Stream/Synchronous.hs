@@ -39,7 +39,7 @@ import Control.Arrow ((&&&))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.Primitive (RealWorld, primToIO)
+import Control.Monad.Primitive (RealWorld, ioToPrim, primToIO)
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
@@ -351,6 +351,9 @@ instance Applicative f => Monad (SourceIO f t) where
 
 instance Applicative f => MonadFix (SourceIO f t) where
   mfix f = SourceIO $ mfix $ runSourceIO . f . fst
+
+instance Applicative f => MonadIO (SourceIO f t) where
+  liftIO action = SourceIO $ (,pure (pure mempty)) <$> ioToPrim action
 
 instance MonadIO f => MonadUnordered t (SourceIO f t) where
 
