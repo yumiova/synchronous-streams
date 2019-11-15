@@ -37,7 +37,8 @@ import Control.Applicative (liftA2)
 import Control.Arrow ((&&&))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
-import Control.Monad.Primitive (RealWorld)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Primitive (RealWorld, primToIO)
 import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
@@ -349,3 +350,48 @@ instance Applicative f => Monad (SourceIO f t) where
 
 instance Applicative f => MonadFix (SourceIO f t) where
   mfix f = SourceIO $ mfix $ runSourceIO . f . fst
+
+instance MonadIO f => MonadUnordered t (SourceIO f t) where
+
+  first stream = SourceIO $ (,pure (pure mempty)) <$> runStream stream
+
+  fbyWith before initial future =
+    SourceIO $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process = pure . scatter
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
+
+  until source restart =
+    SourceIO $ do
+      ~(originalStream, originalGather) <- runSourceIO source
+      previousStream <- newMutVar originalStream
+      previousGather <- newMutVar originalGather
+      let stream =
+            Stream $ do
+              current <- readMutVar previousStream
+              runStream current
+          gather = do
+            condition <- runStream restart
+            if condition
+              then pure process
+              else do
+                current <- readMutVar previousGather
+                current
+          process = scatter <$> liftIO (primToIO (runSourceIO source))
+          scatter ~(newStream, newGather) = do
+            writeMutVar previousStream newStream
+            writeMutVar previousGather newGather
+      pure (stream, gather)
+
+  upon source continue =
+    SourceIO $ do
+      ~(stream, original) <- runSourceIO source
+      let gather = do
+            condition <- runStream continue
+            if condition
+              then original
+              else pure (pure mempty)
+      pure (stream, gather)
