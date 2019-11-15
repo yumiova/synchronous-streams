@@ -31,6 +31,7 @@ module Data.Stream.Synchronous
     -- * I/O transformed streams
     SourceIO,
     ioToCofree,
+    ioToList,
   )
 where
 
@@ -439,3 +440,6 @@ ioToCofree ::
   (forall t. SourceIO f t (Stream t a)) ->
   m (Cofree f a)
 ioToCofree = runIOWith (:<)
+
+ioToList :: MonadIO m => (forall t. SourceIO Identity t (Stream t a)) -> m [a]
+ioToList = runIOWith (\a -> (a :) . runIdentity)
