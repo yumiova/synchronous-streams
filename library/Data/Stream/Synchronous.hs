@@ -395,3 +395,13 @@ instance MonadIO f => MonadUnordered t (SourceIO f t) where
               then original
               else pure (pure mempty)
       pure (stream, gather)
+
+instance MonadIO f => MonadOrdered f t (SourceIO f t) where
+  fbyAWith before initial future =
+    SourceIO $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process = fmap scatter
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
