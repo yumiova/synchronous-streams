@@ -9,11 +9,14 @@ module Data.Stream.Synchronous
     Stream,
 
     -- * Pure (unordered) streams
-    MonadUnordered (first, fbyWith, statefulWith, until, upon),
+    MonadUnordered (first, fbyWith, statefulWith, upon),
     fby,
     fby',
     stateful,
     stateful',
+
+    -- * Dynamically reconfigurable streams
+    MonadDynamic (until),
 
     -- * Effecting (ordered) streams
     MonadOrdered (fbyAWith, statefulAWith),
@@ -189,8 +192,6 @@ class MonadFix m => MonadUnordered t m | m -> t where
   statefulWith before initial step =
     mfix $ \a -> fbyWith before initial (step <*> a)
 
-  until :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
-
   upon :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
 
 fby :: MonadUnordered t m => a -> Stream t a -> m (Stream t a)
@@ -204,6 +205,11 @@ stateful = statefulWith (const id)
 
 stateful' :: MonadUnordered t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful' = statefulWith seq
+
+-- * Dynamically reconfigurable streams
+
+class MonadUnordered t m => MonadDynamic t m where
+  until :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
 
 -- * Effecting (ordered) streams
 
@@ -270,6 +276,15 @@ instance Applicative f => MonadUnordered t (Source f t) where
       gather previous = pure . scatter previous <$> runStream future
       scatter previous a = a `before` writeMutVar previous a
 
+  upon source continue = Source $ second gather <$> runSource source
+    where
+      gather original = do
+        condition <- runStream continue
+        if condition
+          then original
+          else pure (pure mempty)
+
+instance Applicative f => MonadDynamic t (Source f t) where
   until source restart =
     Source $ do
       ~(originalStream, originalGather) <- runSource source
@@ -290,14 +305,6 @@ instance Applicative f => MonadUnordered t (Source f t) where
             writeMutVar previousStream newStream
             writeMutVar previousGather newGather
       pure (stream, gather)
-
-  upon source continue = Source $ second gather <$> runSource source
-    where
-      gather original = do
-        condition <- runStream continue
-        if condition
-          then original
-          else pure (pure mempty)
 
 instance Applicative f => MonadOrdered f t (Source f t) where
   fbyAWith before initial future =
@@ -367,7 +374,7 @@ instance Applicative f => PrimMonad (SourceIO f t) where
 
   primitive f = SourceIO $ (,pure (pure mempty)) <$> primitive f
 
-instance MonadIO f => MonadUnordered t (SourceIO f t) where
+instance Applicative f => MonadUnordered t (SourceIO f t) where
 
   first stream = SourceIO $ (,pure (pure mempty)) <$> runStream stream
 
@@ -380,6 +387,17 @@ instance MonadIO f => MonadUnordered t (SourceIO f t) where
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
+  upon source continue =
+    SourceIO $ do
+      ~(stream, original) <- runSourceIO source
+      let gather = do
+            condition <- runStream continue
+            if condition
+              then original
+              else pure (pure mempty)
+      pure (stream, gather)
+
+instance MonadIO f => MonadDynamic t (SourceIO f t) where
   until source restart =
     SourceIO $ do
       ~(originalStream, originalGather) <- runSourceIO source
@@ -402,17 +420,7 @@ instance MonadIO f => MonadUnordered t (SourceIO f t) where
             writeMutVar previousGather newGather
       pure (stream, gather)
 
-  upon source continue =
-    SourceIO $ do
-      ~(stream, original) <- runSourceIO source
-      let gather = do
-            condition <- runStream continue
-            if condition
-              then original
-              else pure (pure mempty)
-      pure (stream, gather)
-
-instance MonadIO f => MonadOrdered f t (SourceIO f t) where
+instance Applicative f => MonadOrdered f t (SourceIO f t) where
   fbyAWith before initial future =
     SourceIO $ do
       previous <- newMutVar initial
