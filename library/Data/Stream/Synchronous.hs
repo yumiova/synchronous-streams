@@ -374,7 +374,7 @@ instance Applicative f => PrimMonad (SourceIO f t) where
 
   primitive f = SourceIO $ (,pure (pure mempty)) <$> primitive f
 
-instance MonadIO f => MonadUnordered t (SourceIO f t) where
+instance Applicative f => MonadUnordered t (SourceIO f t) where
 
   first stream = SourceIO $ (,pure (pure mempty)) <$> runStream stream
 
@@ -420,7 +420,7 @@ instance MonadIO f => MonadDynamic t (SourceIO f t) where
             writeMutVar previousGather newGather
       pure (stream, gather)
 
-instance MonadIO f => MonadOrdered f t (SourceIO f t) where
+instance Applicative f => MonadOrdered f t (SourceIO f t) where
   fbyAWith before initial future =
     SourceIO $ do
       previous <- newMutVar initial
