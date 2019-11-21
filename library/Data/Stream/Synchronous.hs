@@ -38,7 +38,6 @@ module Data.Stream.Synchronous
 where
 
 import Control.Applicative (liftA2)
-import Control.Arrow ((&&&))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -243,13 +242,14 @@ statefulA' = statefulAWith seq
 newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
 
 instance Functor (Source f t) where
-  fmap f = Source . fmap (bimap f id) . runSource
+  fmap f source = Source $ bimap f id <$> runSource source
 
 instance Applicative f => Applicative (Source f t) where
 
-  pure = Source . pure . (,pure (pure mempty))
+  pure a = Source $ pure (a, pure (pure mempty))
 
-  (<*>) fsource = Source . liftA2 merge (runSource fsource) . runSource
+  fsource <*> source =
+    Source $ liftA2 merge (runSource fsource) (runSource source)
     where
       merge ~(f, fgather) ~(a, gather) =
         (f a, liftA2 (liftA2 (<>)) fgather gather)
@@ -265,22 +265,26 @@ instance Applicative f => MonadFix (Source f t) where
 
 instance Applicative f => MonadUnordered t (Source f t) where
 
-  first = Source . fmap (,pure (pure mempty)) . runStream
+  first stream = Source $ (,pure (pure mempty)) <$> runStream stream
 
   fbyWith before initial future =
-    Source $ (stream &&& gather) <$> newMutVar initial
-    where
-      stream = Stream . readMutVar
-      gather previous = pure . scatter previous <$> runStream future
-      scatter previous a = a `before` writeMutVar previous a
+    Source $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process a = pure (scatter a)
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
 
-  upon source continue = Source $ second gather <$> runSource source
-    where
-      gather original = do
-        condition <- runStream continue
-        if condition
-          then original
-          else pure (pure mempty)
+  upon source continue =
+    Source $ do
+      ~(stream, original) <- runSource source
+      let gather = do
+            condition <- runStream continue
+            if condition
+              then original
+              else pure (pure mempty)
+      pure (stream, gather)
 
 instance Applicative f => MonadDynamic t (Source f t) where
   until source restart =
@@ -295,22 +299,25 @@ instance Applicative f => MonadDynamic t (Source f t) where
           gather = do
             condition <- runStream restart
             if condition
-              then pure . scatter <$> runSource source
+              then uncurry process <$> runSource source
               else do
                 current <- readMutVar previousGather
                 current
-          scatter ~(newStream, newGather) = do
+          process newStream newGather = pure (scatter newStream newGather)
+          scatter newStream newGather = do
             writeMutVar previousStream newStream
             writeMutVar previousGather newGather
       pure (stream, gather)
 
 instance Applicative f => MonadOrdered f t (Source f t) where
   fbyAWith before initial future =
-    Source $ (stream &&& gather) <$> newMutVar initial
-    where
-      stream = Stream . readMutVar
-      gather previous = fmap (scatter previous) <$> runStream future
-      scatter previous a = a `before` writeMutVar previous a
+    Source $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process action = scatter <$> action
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
 
 runWith ::
   Functor f =>
@@ -378,7 +385,7 @@ instance Applicative f => MonadUnordered t (SourceIO f t) where
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process = pure . scatter
+          process a = pure (scatter a)
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
