@@ -27,9 +27,9 @@ module Data.Stream.Synchronous
 
     -- * Untransformed streams
     Source,
-    runAsCofree,
-    runAsList,
-    runAsStream,
+    toCofree,
+    toList,
+    toStream,
 
     -- * I/O transformed streams
     SourceIO,
@@ -327,14 +327,14 @@ runWith f source =
           liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
-runAsCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
-runAsCofree = runWith (:<)
+toCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
+toCofree = runWith (:<)
 
-runAsList :: (forall t. Source Identity t (Stream t a)) -> [a]
-runAsList = runWith (\a -> (a :) . runIdentity)
+toList :: (forall t. Source Identity t (Stream t a)) -> [a]
+toList = runWith (\a -> (a :) . runIdentity)
 
-runAsStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
-runAsStream = runWith (\a -> (a Infinite.:>) . runIdentity)
+toStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
+toStream = runWith (\a -> (a Infinite.:>) . runIdentity)
 
 -- * I/O transformed streams
 
