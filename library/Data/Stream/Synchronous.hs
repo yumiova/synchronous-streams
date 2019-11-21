@@ -29,7 +29,6 @@ module Data.Stream.Synchronous
     Source,
     toCofree,
     toList,
-    toStream,
 
     -- * I/O transformed streams
     SourceIO,
@@ -56,7 +55,6 @@ import Data.AffineSpace (AffineSpace ((.+^), (.-.), Diff))
 import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
-import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 import Data.String (IsString (fromString))
 import Data.VectorSpace (InnerSpace ((<.>)), VectorSpace ((*^), Scalar))
 
@@ -332,9 +330,6 @@ toCofree = runWith (:<)
 
 toList :: (forall t. Source Identity t (Stream t a)) -> [a]
 toList = runWith (\a -> (a :) . runIdentity)
-
-toStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
-toStream = runWith (\a -> (a Infinite.:>) . runIdentity)
 
 -- * I/O transformed streams
 
