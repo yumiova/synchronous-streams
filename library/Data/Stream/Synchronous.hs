@@ -27,9 +27,8 @@ module Data.Stream.Synchronous
 
     -- * Untransformed streams
     Source,
-    runAsCofree,
-    runAsList,
-    runAsStream,
+    toCofree,
+    toList,
 
     -- * I/O transformed streams
     SourceIO,
@@ -39,7 +38,6 @@ module Data.Stream.Synchronous
 where
 
 import Control.Applicative (liftA2)
-import Control.Arrow ((&&&))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (MonadFix (mfix))
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -53,10 +51,8 @@ import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
 import Data.AffineSpace (AffineSpace ((.+^), (.-.), Diff))
-import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
-import qualified Data.Stream.Infinite as Infinite (Stream ((:>)))
 import Data.String (IsString (fromString))
 import Data.VectorSpace (InnerSpace ((<.>)), VectorSpace ((*^), Scalar))
 
@@ -245,44 +241,56 @@ statefulA' = statefulAWith seq
 newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
 
 instance Functor (Source f t) where
-  fmap f = Source . fmap (bimap f id) . runSource
+  fmap f source =
+    Source $ do
+      ~(a, gather) <- runSource source
+      pure (f a, gather)
 
 instance Applicative f => Applicative (Source f t) where
 
-  pure = Source . pure . (,pure (pure mempty))
+  pure a = Source $ pure (a, pure (pure (pure ())))
 
-  (<*>) fsource = Source . liftA2 merge (runSource fsource) . runSource
-    where
-      merge ~(f, fgather) ~(a, gather) =
-        (f a, liftA2 (liftA2 (<>)) fgather gather)
+  fsource <*> source =
+    Source $ do
+      ~(f, fgather) <- runSource fsource
+      ~(a, gather) <- runSource source
+      pure (f a, liftA2 (liftA2 (*>)) fgather gather)
 
 instance Applicative f => Monad (Source f t) where
   lsource >>= f =
     Source $ do
       ~(a, lgather) <- runSource lsource
-      second (liftA2 (liftA2 (<>)) lgather) <$> runSource (f a)
+      ~(b, rgather) <- runSource (f a)
+      pure (b, liftA2 (liftA2 (*>)) lgather rgather)
 
 instance Applicative f => MonadFix (Source f t) where
   mfix f = Source $ mfix $ runSource . f . fst
 
 instance Applicative f => MonadUnordered t (Source f t) where
 
-  first = Source . fmap (,pure (pure mempty)) . runStream
+  first stream =
+    Source $ do
+      a <- runStream stream
+      pure (a, pure (pure (pure ())))
 
   fbyWith before initial future =
-    Source $ (stream &&& gather) <$> newMutVar initial
-    where
-      stream = Stream . readMutVar
-      gather previous = pure . scatter previous <$> runStream future
-      scatter previous a = a `before` writeMutVar previous a
+    Source $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process a = pure (scatter a)
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
 
-  upon source continue = Source $ second gather <$> runSource source
-    where
-      gather original = do
-        condition <- runStream continue
-        if condition
-          then original
-          else pure (pure mempty)
+  upon source continue =
+    Source $ do
+      ~(stream, original) <- runSource source
+      let gather = do
+            condition <- runStream continue
+            if condition
+              then original
+              else pure (pure (pure ()))
+      pure (stream, gather)
 
 instance Applicative f => MonadDynamic t (Source f t) where
   until source restart =
@@ -297,22 +305,25 @@ instance Applicative f => MonadDynamic t (Source f t) where
           gather = do
             condition <- runStream restart
             if condition
-              then pure . scatter <$> runSource source
+              then uncurry process <$> runSource source
               else do
                 current <- readMutVar previousGather
                 current
-          scatter ~(newStream, newGather) = do
+          process newStream newGather = pure (scatter newStream newGather)
+          scatter newStream newGather = do
             writeMutVar previousStream newStream
             writeMutVar previousGather newGather
       pure (stream, gather)
 
 instance Applicative f => MonadOrdered f t (Source f t) where
   fbyAWith before initial future =
-    Source $ (stream &&& gather) <$> newMutVar initial
-    where
-      stream = Stream . readMutVar
-      gather previous = fmap (scatter previous) <$> runStream future
-      scatter previous a = a `before` writeMutVar previous a
+    Source $ do
+      previous <- newMutVar initial
+      let stream = Stream (readMutVar previous)
+          gather = process <$> runStream future
+          process action = scatter <$> action
+          scatter a = a `before` writeMutVar previous a
+      pure (stream, gather)
 
 runWith ::
   Functor f =>
@@ -327,14 +338,11 @@ runWith f source =
           liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
-runAsCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
-runAsCofree = runWith (:<)
+toCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
+toCofree = runWith (:<)
 
-runAsList :: (forall t. Source Identity t (Stream t a)) -> [a]
-runAsList = runWith (\a -> (a :) . runIdentity)
-
-runAsStream :: (forall t. Source Identity t (Stream t a)) -> Infinite.Stream a
-runAsStream = runWith (\a -> (a Infinite.:>) . runIdentity)
+toList :: (forall t. Source Identity t (Stream t a)) -> [a]
+toList = runWith (\a -> (a :) . runIdentity)
 
 -- * I/O transformed streams
 
@@ -344,46 +352,59 @@ newtype SourceIO f t a
       }
 
 instance Functor (SourceIO f t) where
-  fmap f source = SourceIO $ bimap f id <$> runSourceIO source
+  fmap f source =
+    SourceIO $ do
+      ~(a, gather) <- runSourceIO source
+      pure (f a, gather)
 
 instance Applicative f => Applicative (SourceIO f t) where
 
-  pure a = SourceIO $ pure (a, pure (pure mempty))
+  pure a = SourceIO $ pure (a, pure (pure (pure ())))
 
   fsource <*> source =
-    SourceIO $ liftA2 merge (runSourceIO fsource) (runSourceIO source)
-    where
-      merge ~(f, fgather) ~(a, gather) =
-        (f a, liftA2 (liftA2 (<>)) fgather gather)
+    SourceIO $ do
+      ~(f, fgather) <- runSourceIO fsource
+      ~(a, gather) <- runSourceIO source
+      pure (f a, liftA2 (liftA2 (*>)) fgather gather)
 
 instance Applicative f => Monad (SourceIO f t) where
   lsource >>= f =
     SourceIO $ do
       ~(a, lgather) <- runSourceIO lsource
-      second (liftA2 (liftA2 (<>)) lgather) <$> runSourceIO (f a)
+      ~(b, rgather) <- runSourceIO (f a)
+      pure (b, liftA2 (liftA2 (*>)) lgather rgather)
 
 instance Applicative f => MonadFix (SourceIO f t) where
   mfix f = SourceIO $ mfix $ runSourceIO . f . fst
 
 instance Applicative f => MonadIO (SourceIO f t) where
-  liftIO action = SourceIO $ (,pure (pure mempty)) <$> ioToPrim action
+  liftIO action =
+    SourceIO $ do
+      a <- ioToPrim action
+      pure (a, pure (pure (pure ())))
 
 instance Applicative f => PrimMonad (SourceIO f t) where
 
   type PrimState (SourceIO f t) = RealWorld
 
-  primitive f = SourceIO $ (,pure (pure mempty)) <$> primitive f
+  primitive f =
+    SourceIO $ do
+      a <- primitive f
+      pure (a, pure (pure (pure ())))
 
 instance Applicative f => MonadUnordered t (SourceIO f t) where
 
-  first stream = SourceIO $ (,pure (pure mempty)) <$> runStream stream
+  first stream =
+    SourceIO $ do
+      a <- runStream stream
+      pure (a, pure (pure (pure ())))
 
   fbyWith before initial future =
     SourceIO $ do
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process = pure . scatter
+          process a = pure (scatter a)
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
@@ -394,7 +415,7 @@ instance Applicative f => MonadUnordered t (SourceIO f t) where
             condition <- runStream continue
             if condition
               then original
-              else pure (pure mempty)
+              else pure (pure (pure ()))
       pure (stream, gather)
 
 instance MonadIO f => MonadDynamic t (SourceIO f t) where
