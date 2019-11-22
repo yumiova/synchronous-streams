@@ -51,7 +51,6 @@ import Control.Monad.Primitive.Unsafe (unsafeDupableCollect)
 import Control.Monad.ST (ST, runST)
 import Data.AdditiveGroup (AdditiveGroup ((^+^), (^-^), negateV, zeroV))
 import Data.AffineSpace (AffineSpace ((.+^), (.-.), Diff))
-import Data.Bifunctor (bimap, second)
 import Data.Functor.Identity (Identity (runIdentity))
 import Data.Primitive (newMutVar, readMutVar, writeMutVar)
 import Data.String (IsString (fromString))
@@ -353,39 +352,52 @@ newtype SourceIO f t a
       }
 
 instance Functor (SourceIO f t) where
-  fmap f source = SourceIO $ bimap f id <$> runSourceIO source
+  fmap f source =
+    SourceIO $ do
+      ~(a, gather) <- runSourceIO source
+      pure (f a, gather)
 
 instance Applicative f => Applicative (SourceIO f t) where
 
   pure a = SourceIO $ pure (a, pure (pure mempty))
 
   fsource <*> source =
-    SourceIO $ liftA2 merge (runSourceIO fsource) (runSourceIO source)
-    where
-      merge ~(f, fgather) ~(a, gather) =
-        (f a, liftA2 (liftA2 (<>)) fgather gather)
+    SourceIO $ do
+      ~(f, fgather) <- runSourceIO fsource
+      ~(a, gather) <- runSourceIO source
+      pure (f a, liftA2 (liftA2 (<>)) fgather gather)
 
 instance Applicative f => Monad (SourceIO f t) where
   lsource >>= f =
     SourceIO $ do
       ~(a, lgather) <- runSourceIO lsource
-      second (liftA2 (liftA2 (<>)) lgather) <$> runSourceIO (f a)
+      ~(b, rgather) <- runSourceIO (f a)
+      pure (b, liftA2 (liftA2 (<>)) lgather rgather)
 
 instance Applicative f => MonadFix (SourceIO f t) where
   mfix f = SourceIO $ mfix $ runSourceIO . f . fst
 
 instance Applicative f => MonadIO (SourceIO f t) where
-  liftIO action = SourceIO $ (,pure (pure mempty)) <$> ioToPrim action
+  liftIO action =
+    SourceIO $ do
+      a <- ioToPrim action
+      pure (a, pure (pure mempty))
 
 instance Applicative f => PrimMonad (SourceIO f t) where
 
   type PrimState (SourceIO f t) = RealWorld
 
-  primitive f = SourceIO $ (,pure (pure mempty)) <$> primitive f
+  primitive f =
+    SourceIO $ do
+      a <- primitive f
+      pure (a, pure (pure mempty))
 
 instance Applicative f => MonadUnordered t (SourceIO f t) where
 
-  first stream = SourceIO $ (,pure (pure mempty)) <$> runStream stream
+  first stream =
+    SourceIO $ do
+      a <- runStream stream
+      pure (a, pure (pure mempty))
 
   fbyWith before initial future =
     SourceIO $ do
