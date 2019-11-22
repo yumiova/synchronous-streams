@@ -8,17 +8,17 @@ module Data.Stream.Synchronous
     Stream,
 
     -- * Pure (unordered) streams
-    MonadUnordered (first, fbyWith, statefulWith, upon),
+    MonadMoment (first, fbyWith, statefulWith, upon),
     fby,
     fby',
     stateful,
     stateful',
 
     -- * Dynamically reconfigurable streams
-    MonadDynamic (until),
+    MonadSwitch (until),
 
     -- * Effecting (ordered) streams
-    MonadOrdered (fbyAWith, statefulAWith),
+    MonadScheme (fbyAWith, statefulAWith),
     fbyA,
     fbyA',
     statefulA,
@@ -173,7 +173,7 @@ instance MonadFix (Stream t) where
 
 -- * Pure (unordered) streams
 
-class MonadFix m => MonadUnordered t m | m -> t where
+class MonadFix m => MonadMoment t m | m -> t where
 
   first :: Stream t a -> m a
 
@@ -189,28 +189,28 @@ class MonadFix m => MonadUnordered t m | m -> t where
 
   upon :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
 
-fby :: MonadUnordered t m => a -> Stream t a -> m (Stream t a)
+fby :: MonadMoment t m => a -> Stream t a -> m (Stream t a)
 fby = fbyWith (const id)
 
-fby' :: MonadUnordered t m => a -> Stream t a -> m (Stream t a)
+fby' :: MonadMoment t m => a -> Stream t a -> m (Stream t a)
 fby' = fbyWith seq
 
-stateful :: MonadUnordered t m => a -> Stream t (a -> a) -> m (Stream t a)
+stateful :: MonadMoment t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful = statefulWith (const id)
 
-stateful' :: MonadUnordered t m => a -> Stream t (a -> a) -> m (Stream t a)
+stateful' :: MonadMoment t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful' = statefulWith seq
 
 -- * Dynamically reconfigurable streams
 
-class MonadUnordered t m => MonadDynamic t m where
+class MonadMoment t m => MonadSwitch t m where
   until :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
 
 -- * Effecting (ordered) streams
 
 class
-  (Applicative f, MonadUnordered t m) =>
-  MonadOrdered f t m
+  (Applicative f, MonadMoment t m) =>
+  MonadScheme f t m
     | m -> f t where
 
   fbyAWith :: (forall r. a -> r -> r) -> a -> Stream t (f a) -> m (Stream t a)
@@ -223,16 +223,16 @@ class
   statefulAWith before initial step =
     mfix $ \a -> fbyAWith before initial (step <*> a)
 
-fbyA :: MonadOrdered f t m => a -> Stream t (f a) -> m (Stream t a)
+fbyA :: MonadScheme f t m => a -> Stream t (f a) -> m (Stream t a)
 fbyA = fbyAWith (const id)
 
-fbyA' :: MonadOrdered f t m => a -> Stream t (f a) -> m (Stream t a)
+fbyA' :: MonadScheme f t m => a -> Stream t (f a) -> m (Stream t a)
 fbyA' = fbyAWith seq
 
-statefulA :: MonadOrdered f t m => a -> Stream t (a -> f a) -> m (Stream t a)
+statefulA :: MonadScheme f t m => a -> Stream t (a -> f a) -> m (Stream t a)
 statefulA = statefulAWith (const id)
 
-statefulA' :: MonadOrdered f t m => a -> Stream t (a -> f a) -> m (Stream t a)
+statefulA' :: MonadScheme f t m => a -> Stream t (a -> f a) -> m (Stream t a)
 statefulA' = statefulAWith seq
 
 -- * Untransformed streams
@@ -265,7 +265,7 @@ instance Applicative f => Monad (Moment f t) where
 instance Applicative f => MonadFix (Moment f t) where
   mfix f = Moment $ mfix $ runMoment . f . fst
 
-instance Applicative f => MonadUnordered t (Moment f t) where
+instance Applicative f => MonadMoment t (Moment f t) where
 
   first stream =
     Moment $ do
@@ -291,7 +291,7 @@ instance Applicative f => MonadUnordered t (Moment f t) where
               else pure (pure (pure ()))
       pure (stream, gather)
 
-instance Applicative f => MonadDynamic t (Moment f t) where
+instance Applicative f => MonadSwitch t (Moment f t) where
   until moment restart =
     Moment $ do
       ~(originalStream, originalGather) <- runMoment moment
@@ -314,7 +314,7 @@ instance Applicative f => MonadDynamic t (Moment f t) where
             writeMutVar previousGather newGather
       pure (stream, gather)
 
-instance Applicative f => MonadOrdered f t (Moment f t) where
+instance Applicative f => MonadScheme f t (Moment f t) where
   fbyAWith before initial future =
     Moment $ do
       previous <- newMutVar initial
@@ -391,7 +391,7 @@ instance Applicative f => PrimMonad (MomentIO f t) where
       a <- primitive f
       pure (a, pure (pure (pure ())))
 
-instance Applicative f => MonadUnordered t (MomentIO f t) where
+instance Applicative f => MonadMoment t (MomentIO f t) where
 
   first stream =
     MomentIO $ do
@@ -417,7 +417,7 @@ instance Applicative f => MonadUnordered t (MomentIO f t) where
               else pure (pure (pure ()))
       pure (stream, gather)
 
-instance MonadIO f => MonadDynamic t (MomentIO f t) where
+instance MonadIO f => MonadSwitch t (MomentIO f t) where
   until moment restart =
     MomentIO $ do
       ~(originalStream, originalGather) <- runMomentIO moment
@@ -440,7 +440,7 @@ instance MonadIO f => MonadDynamic t (MomentIO f t) where
             writeMutVar previousGather newGather
       pure (stream, gather)
 
-instance Applicative f => MonadOrdered f t (MomentIO f t) where
+instance Applicative f => MonadScheme f t (MomentIO f t) where
   fbyAWith before initial future =
     MomentIO $ do
       previous <- newMutVar initial
