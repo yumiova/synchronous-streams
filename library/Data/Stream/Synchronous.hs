@@ -242,30 +242,37 @@ statefulA' = statefulAWith seq
 newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
 
 instance Functor (Source f t) where
-  fmap f source = Source $ bimap f id <$> runSource source
+  fmap f source =
+    Source $ do
+      ~(a, gather) <- runSource source
+      pure (f a, gather)
 
 instance Applicative f => Applicative (Source f t) where
 
   pure a = Source $ pure (a, pure (pure mempty))
 
   fsource <*> source =
-    Source $ liftA2 merge (runSource fsource) (runSource source)
-    where
-      merge ~(f, fgather) ~(a, gather) =
-        (f a, liftA2 (liftA2 (<>)) fgather gather)
+    Source $ do
+      ~(f, fgather) <- runSource fsource
+      ~(a, gather) <- runSource source
+      pure (f a, liftA2 (liftA2 (<>)) fgather gather)
 
 instance Applicative f => Monad (Source f t) where
   lsource >>= f =
     Source $ do
       ~(a, lgather) <- runSource lsource
-      second (liftA2 (liftA2 (<>)) lgather) <$> runSource (f a)
+      ~(b, rgather) <- runSource (f a)
+      pure (b, liftA2 (liftA2 (<>)) lgather rgather)
 
 instance Applicative f => MonadFix (Source f t) where
   mfix f = Source $ mfix $ runSource . f . fst
 
 instance Applicative f => MonadUnordered t (Source f t) where
 
-  first stream = Source $ (,pure (pure mempty)) <$> runStream stream
+  first stream =
+    Source $ do
+      a <- runStream stream
+      pure (a, pure (pure mempty))
 
   fbyWith before initial future =
     Source $ do
