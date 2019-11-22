@@ -26,12 +26,12 @@ module Data.Stream.Synchronous
     statefulA',
 
     -- * Untransformed streams
-    Source,
+    Moment,
     toCofree,
     toList,
 
     -- * I/O transformed streams
-    SourceIO,
+    MomentIO,
     ioToCofree,
     ioToList,
   )
@@ -238,43 +238,43 @@ statefulA' = statefulAWith seq
 
 -- * Untransformed streams
 
-newtype Source f t a = Source {runSource :: ST t (a, ST t (f (ST t ())))}
+newtype Moment f t a = Moment {runMoment :: ST t (a, ST t (f (ST t ())))}
 
-instance Functor (Source f t) where
-  fmap f source =
-    Source $ do
-      ~(a, gather) <- runSource source
+instance Functor (Moment f t) where
+  fmap f moment =
+    Moment $ do
+      ~(a, gather) <- runMoment moment
       pure (f a, gather)
 
-instance Applicative f => Applicative (Source f t) where
+instance Applicative f => Applicative (Moment f t) where
 
-  pure a = Source $ pure (a, pure (pure (pure ())))
+  pure a = Moment $ pure (a, pure (pure (pure ())))
 
-  fsource <*> source =
-    Source $ do
-      ~(f, fgather) <- runSource fsource
-      ~(a, gather) <- runSource source
+  fmoment <*> moment =
+    Moment $ do
+      ~(f, fgather) <- runMoment fmoment
+      ~(a, gather) <- runMoment moment
       pure (f a, liftA2 (liftA2 (*>)) fgather gather)
 
-instance Applicative f => Monad (Source f t) where
-  lsource >>= f =
-    Source $ do
-      ~(a, lgather) <- runSource lsource
-      ~(b, rgather) <- runSource (f a)
+instance Applicative f => Monad (Moment f t) where
+  lmoment >>= f =
+    Moment $ do
+      ~(a, lgather) <- runMoment lmoment
+      ~(b, rgather) <- runMoment (f a)
       pure (b, liftA2 (liftA2 (*>)) lgather rgather)
 
-instance Applicative f => MonadFix (Source f t) where
-  mfix f = Source $ mfix $ runSource . f . fst
+instance Applicative f => MonadFix (Moment f t) where
+  mfix f = Moment $ mfix $ runMoment . f . fst
 
-instance Applicative f => MonadUnordered t (Source f t) where
+instance Applicative f => MonadUnordered t (Moment f t) where
 
   first stream =
-    Source $ do
+    Moment $ do
       a <- runStream stream
       pure (a, pure (pure (pure ())))
 
   fbyWith before initial future =
-    Source $ do
+    Moment $ do
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
@@ -282,9 +282,9 @@ instance Applicative f => MonadUnordered t (Source f t) where
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
-  upon source continue =
-    Source $ do
-      ~(stream, original) <- runSource source
+  upon moment continue =
+    Moment $ do
+      ~(stream, original) <- runMoment moment
       let gather = do
             condition <- runStream continue
             if condition
@@ -292,10 +292,10 @@ instance Applicative f => MonadUnordered t (Source f t) where
               else pure (pure (pure ()))
       pure (stream, gather)
 
-instance Applicative f => MonadDynamic t (Source f t) where
-  until source restart =
-    Source $ do
-      ~(originalStream, originalGather) <- runSource source
+instance Applicative f => MonadDynamic t (Moment f t) where
+  until moment restart =
+    Moment $ do
+      ~(originalStream, originalGather) <- runMoment moment
       previousStream <- newMutVar originalStream
       previousGather <- newMutVar originalGather
       let stream =
@@ -305,7 +305,7 @@ instance Applicative f => MonadDynamic t (Source f t) where
           gather = do
             condition <- runStream restart
             if condition
-              then uncurry process <$> runSource source
+              then uncurry process <$> runMoment moment
               else do
                 current <- readMutVar previousGather
                 current
@@ -315,9 +315,9 @@ instance Applicative f => MonadDynamic t (Source f t) where
             writeMutVar previousGather newGather
       pure (stream, gather)
 
-instance Applicative f => MonadOrdered f t (Source f t) where
+instance Applicative f => MonadOrdered f t (Moment f t) where
   fbyAWith before initial future =
-    Source $ do
+    Moment $ do
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
@@ -328,79 +328,79 @@ instance Applicative f => MonadOrdered f t (Source f t) where
 runWith ::
   Functor f =>
   (a -> f b -> b) ->
-  (forall t. Source f t (Stream t a)) ->
+  (forall t. Moment f t (Stream t a)) ->
   b
-runWith f source =
+runWith f moment =
   runST $ do
-    ~(stream, gather) <- runSource source
+    ~(stream, gather) <- runMoment moment
     let xs = do
           process <- gather
           liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
     xs
 
-toCofree :: Functor f => (forall t. Source f t (Stream t a)) -> Cofree f a
+toCofree :: Functor f => (forall t. Moment f t (Stream t a)) -> Cofree f a
 toCofree = runWith (:<)
 
-toList :: (forall t. Source Identity t (Stream t a)) -> [a]
+toList :: (forall t. Moment Identity t (Stream t a)) -> [a]
 toList = runWith (\a -> (a :) . runIdentity)
 
 -- * I/O transformed streams
 
-newtype SourceIO f t a
-  = SourceIO
-      { runSourceIO :: t ~ RealWorld => ST t (a, ST t (f (ST t ())))
+newtype MomentIO f t a
+  = MomentIO
+      { runMomentIO :: t ~ RealWorld => ST t (a, ST t (f (ST t ())))
       }
 
-instance Functor (SourceIO f t) where
-  fmap f source =
-    SourceIO $ do
-      ~(a, gather) <- runSourceIO source
+instance Functor (MomentIO f t) where
+  fmap f moment =
+    MomentIO $ do
+      ~(a, gather) <- runMomentIO moment
       pure (f a, gather)
 
-instance Applicative f => Applicative (SourceIO f t) where
+instance Applicative f => Applicative (MomentIO f t) where
 
-  pure a = SourceIO $ pure (a, pure (pure (pure ())))
+  pure a = MomentIO $ pure (a, pure (pure (pure ())))
 
-  fsource <*> source =
-    SourceIO $ do
-      ~(f, fgather) <- runSourceIO fsource
-      ~(a, gather) <- runSourceIO source
+  fmoment <*> moment =
+    MomentIO $ do
+      ~(f, fgather) <- runMomentIO fmoment
+      ~(a, gather) <- runMomentIO moment
       pure (f a, liftA2 (liftA2 (*>)) fgather gather)
 
-instance Applicative f => Monad (SourceIO f t) where
-  lsource >>= f =
-    SourceIO $ do
-      ~(a, lgather) <- runSourceIO lsource
-      ~(b, rgather) <- runSourceIO (f a)
+instance Applicative f => Monad (MomentIO f t) where
+  lmoment >>= f =
+    MomentIO $ do
+      ~(a, lgather) <- runMomentIO lmoment
+      ~(b, rgather) <- runMomentIO (f a)
       pure (b, liftA2 (liftA2 (*>)) lgather rgather)
 
-instance Applicative f => MonadFix (SourceIO f t) where
-  mfix f = SourceIO $ mfix $ runSourceIO . f . fst
+instance Applicative f => MonadFix (MomentIO f t) where
+  mfix f = MomentIO $ mfix $ runMomentIO . f . fst
 
-instance Applicative f => MonadIO (SourceIO f t) where
+instance Applicative f => MonadIO (MomentIO f t) where
   liftIO action =
-    SourceIO $ do
+    MomentIO $ do
       a <- ioToPrim action
       pure (a, pure (pure (pure ())))
 
-instance Applicative f => PrimMonad (SourceIO f t) where
+instance Applicative f => PrimMonad (MomentIO f t) where
 
-  type PrimState (SourceIO f t) = RealWorld
+  type PrimState (MomentIO f t) = RealWorld
 
   primitive f =
-    SourceIO $ do
+    MomentIO $ do
       a <- primitive f
       pure (a, pure (pure (pure ())))
 
-instance Applicative f => MonadUnordered t (SourceIO f t) where
+instance Applicative f => MonadUnordered t (MomentIO f t) where
 
   first stream =
-    SourceIO $ do
+    MomentIO $ do
       a <- runStream stream
       pure (a, pure (pure (pure ())))
 
   fbyWith before initial future =
-    SourceIO $ do
+    MomentIO $ do
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
@@ -408,9 +408,9 @@ instance Applicative f => MonadUnordered t (SourceIO f t) where
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
-  upon source continue =
-    SourceIO $ do
-      ~(stream, original) <- runSourceIO source
+  upon moment continue =
+    MomentIO $ do
+      ~(stream, original) <- runMomentIO moment
       let gather = do
             condition <- runStream continue
             if condition
@@ -418,10 +418,10 @@ instance Applicative f => MonadUnordered t (SourceIO f t) where
               else pure (pure (pure ()))
       pure (stream, gather)
 
-instance MonadIO f => MonadDynamic t (SourceIO f t) where
-  until source restart =
-    SourceIO $ do
-      ~(originalStream, originalGather) <- runSourceIO source
+instance MonadIO f => MonadDynamic t (MomentIO f t) where
+  until moment restart =
+    MomentIO $ do
+      ~(originalStream, originalGather) <- runMomentIO moment
       previousStream <- newMutVar originalStream
       previousGather <- newMutVar originalGather
       let stream =
@@ -435,15 +435,15 @@ instance MonadIO f => MonadDynamic t (SourceIO f t) where
               else do
                 current <- readMutVar previousGather
                 current
-          process = scatter <$> liftIO (primToIO (runSourceIO source))
+          process = scatter <$> liftIO (primToIO (runMomentIO moment))
           scatter ~(newStream, newGather) = do
             writeMutVar previousStream newStream
             writeMutVar previousGather newGather
       pure (stream, gather)
 
-instance Applicative f => MonadOrdered f t (SourceIO f t) where
+instance Applicative f => MonadOrdered f t (MomentIO f t) where
   fbyAWith before initial future =
-    SourceIO $ do
+    MomentIO $ do
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
@@ -454,11 +454,11 @@ instance Applicative f => MonadOrdered f t (SourceIO f t) where
 runIOWith ::
   (MonadIO m, Functor f) =>
   (a -> f b -> b) ->
-  (forall t. SourceIO f t (Stream t a)) ->
+  (forall t. MomentIO f t (Stream t a)) ->
   m b
-runIOWith f source =
+runIOWith f moment =
   liftIO $ primToIO $ do
-    ~(stream, gather) <- runSourceIO source
+    ~(stream, gather) <- runMomentIO moment
     let xs = do
           process <- gather
           liftA2 f (runStream stream) (unsafeDupableCollect (*> xs) process)
@@ -466,9 +466,9 @@ runIOWith f source =
 
 ioToCofree ::
   (MonadIO m, Functor f) =>
-  (forall t. SourceIO f t (Stream t a)) ->
+  (forall t. MomentIO f t (Stream t a)) ->
   m (Cofree f a)
 ioToCofree = runIOWith (:<)
 
-ioToList :: MonadIO m => (forall t. SourceIO Identity t (Stream t a)) -> m [a]
+ioToList :: MonadIO m => (forall t. MomentIO Identity t (Stream t a)) -> m [a]
 ioToList = runIOWith (\a -> (a :) . runIdentity)
