@@ -248,20 +248,20 @@ instance Functor (Source f t) where
 
 instance Applicative f => Applicative (Source f t) where
 
-  pure a = Source $ pure (a, pure (pure mempty))
+  pure a = Source $ pure (a, pure (pure (pure ())))
 
   fsource <*> source =
     Source $ do
       ~(f, fgather) <- runSource fsource
       ~(a, gather) <- runSource source
-      pure (f a, liftA2 (liftA2 (<>)) fgather gather)
+      pure (f a, liftA2 (liftA2 (*>)) fgather gather)
 
 instance Applicative f => Monad (Source f t) where
   lsource >>= f =
     Source $ do
       ~(a, lgather) <- runSource lsource
       ~(b, rgather) <- runSource (f a)
-      pure (b, liftA2 (liftA2 (<>)) lgather rgather)
+      pure (b, liftA2 (liftA2 (*>)) lgather rgather)
 
 instance Applicative f => MonadFix (Source f t) where
   mfix f = Source $ mfix $ runSource . f . fst
@@ -271,7 +271,7 @@ instance Applicative f => MonadUnordered t (Source f t) where
   first stream =
     Source $ do
       a <- runStream stream
-      pure (a, pure (pure mempty))
+      pure (a, pure (pure (pure ())))
 
   fbyWith before initial future =
     Source $ do
@@ -289,7 +289,7 @@ instance Applicative f => MonadUnordered t (Source f t) where
             condition <- runStream continue
             if condition
               then original
-              else pure (pure mempty)
+              else pure (pure (pure ()))
       pure (stream, gather)
 
 instance Applicative f => MonadDynamic t (Source f t) where
@@ -359,20 +359,20 @@ instance Functor (SourceIO f t) where
 
 instance Applicative f => Applicative (SourceIO f t) where
 
-  pure a = SourceIO $ pure (a, pure (pure mempty))
+  pure a = SourceIO $ pure (a, pure (pure (pure ())))
 
   fsource <*> source =
     SourceIO $ do
       ~(f, fgather) <- runSourceIO fsource
       ~(a, gather) <- runSourceIO source
-      pure (f a, liftA2 (liftA2 (<>)) fgather gather)
+      pure (f a, liftA2 (liftA2 (*>)) fgather gather)
 
 instance Applicative f => Monad (SourceIO f t) where
   lsource >>= f =
     SourceIO $ do
       ~(a, lgather) <- runSourceIO lsource
       ~(b, rgather) <- runSourceIO (f a)
-      pure (b, liftA2 (liftA2 (<>)) lgather rgather)
+      pure (b, liftA2 (liftA2 (*>)) lgather rgather)
 
 instance Applicative f => MonadFix (SourceIO f t) where
   mfix f = SourceIO $ mfix $ runSourceIO . f . fst
@@ -381,7 +381,7 @@ instance Applicative f => MonadIO (SourceIO f t) where
   liftIO action =
     SourceIO $ do
       a <- ioToPrim action
-      pure (a, pure (pure mempty))
+      pure (a, pure (pure (pure ())))
 
 instance Applicative f => PrimMonad (SourceIO f t) where
 
@@ -390,14 +390,14 @@ instance Applicative f => PrimMonad (SourceIO f t) where
   primitive f =
     SourceIO $ do
       a <- primitive f
-      pure (a, pure (pure mempty))
+      pure (a, pure (pure (pure ())))
 
 instance Applicative f => MonadUnordered t (SourceIO f t) where
 
   first stream =
     SourceIO $ do
       a <- runStream stream
-      pure (a, pure (pure mempty))
+      pure (a, pure (pure (pure ())))
 
   fbyWith before initial future =
     SourceIO $ do
@@ -415,7 +415,7 @@ instance Applicative f => MonadUnordered t (SourceIO f t) where
             condition <- runStream continue
             if condition
               then original
-              else pure (pure mempty)
+              else pure (pure (pure ()))
       pure (stream, gather)
 
 instance MonadIO f => MonadDynamic t (SourceIO f t) where
