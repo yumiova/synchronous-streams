@@ -26,7 +26,6 @@ library
     FlexibleInstances
     FunctionalDependencies
     RankNTypes
-    TupleSections
     TypeFamilies
     UnboxedTuples
 
