@@ -208,10 +208,7 @@ class MonadMoment t m => MonadSwitch t m where
 
 -- * Effecting (ordered) streams
 
-class
-  (Applicative f, MonadMoment t m) =>
-  MonadScheme f t m
-    | m -> f t where
+class (Applicative f, MonadMoment t m) => MonadScheme f t m | m -> f where
 
   fbyAWith :: (forall r. a -> r -> r) -> a -> Stream t (f a) -> m (Stream t a)
 
