@@ -14,9 +14,6 @@ module Data.Stream.Synchronous
     stateful,
     stateful',
 
-    -- * Dynamically reconfigurable streams
-    MonadSwitch (until),
-
     -- * Effecting (ordered) streams
     MonadScheme (fbyAWith, statefulAWith),
     fbyA,
@@ -57,7 +54,7 @@ import Data.VectorSpace (InnerSpace ((<.>)), VectorSpace ((*^), Scalar))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
 
-infixl 4 `until`, `upon`
+infixl 4 `upon`
 
 -- * Stream views
 
@@ -201,11 +198,6 @@ stateful = statefulWith (const id)
 stateful' :: MonadMoment t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful' = statefulWith seq
 
--- * Dynamically reconfigurable streams
-
-class MonadMoment t m => MonadSwitch t m where
-  until :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
-
 -- * Effecting (ordered) streams
 
 class (Applicative f, MonadMoment t m) => MonadScheme f t m | m -> f where
@@ -274,7 +266,7 @@ instance Applicative f => MonadMoment t (Moment f t) where
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process a = pure (scatter a)
+          process action = pure (scatter action)
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
@@ -286,29 +278,6 @@ instance Applicative f => MonadMoment t (Moment f t) where
             if condition
               then original
               else pure (pure (pure ()))
-      pure (stream, gather)
-
-instance Applicative f => MonadSwitch t (Moment f t) where
-  until moment restart =
-    Moment $ do
-      ~(originalStream, originalGather) <- runMoment moment
-      previousStream <- newMutVar originalStream
-      previousGather <- newMutVar originalGather
-      let stream =
-            Stream $ do
-              current <- readMutVar previousStream
-              runStream current
-          gather = do
-            condition <- runStream restart
-            if condition
-              then uncurry process <$> runMoment moment
-              else do
-                current <- readMutVar previousGather
-                current
-          process newStream newGather = pure (scatter newStream newGather)
-          scatter newStream newGather = do
-            writeMutVar previousStream newStream
-            writeMutVar previousGather newGather
       pure (stream, gather)
 
 instance Applicative f => MonadScheme f t (Moment f t) where
@@ -400,7 +369,7 @@ instance Applicative f => MonadMoment t (MomentIO f t) where
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process a = pure (scatter a)
+          process action = pure (scatter action)
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
@@ -414,36 +383,13 @@ instance Applicative f => MonadMoment t (MomentIO f t) where
               else pure (pure (pure ()))
       pure (stream, gather)
 
-instance MonadIO f => MonadSwitch t (MomentIO f t) where
-  until moment restart =
-    MomentIO $ do
-      ~(originalStream, originalGather) <- runMomentIO moment
-      previousStream <- newMutVar originalStream
-      previousGather <- newMutVar originalGather
-      let stream =
-            Stream $ do
-              current <- readMutVar previousStream
-              runStream current
-          gather = do
-            condition <- runStream restart
-            if condition
-              then pure process
-              else do
-                current <- readMutVar previousGather
-                current
-          process = scatter <$> liftIO (primToIO (runMomentIO moment))
-          scatter ~(newStream, newGather) = do
-            writeMutVar previousStream newStream
-            writeMutVar previousGather newGather
-      pure (stream, gather)
-
 instance Applicative f => MonadScheme f t (MomentIO f t) where
   fbyAWith before initial future =
     MomentIO $ do
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process = fmap scatter
+          process action = scatter <$> action
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
