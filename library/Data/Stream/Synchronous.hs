@@ -266,7 +266,7 @@ instance Applicative f => MonadMoment t (Moment f t) where
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process a = pure (scatter a)
+          process action = pure (scatter action)
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
@@ -369,7 +369,7 @@ instance Applicative f => MonadMoment t (MomentIO f t) where
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process a = pure (scatter a)
+          process action = pure (scatter action)
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
@@ -389,7 +389,7 @@ instance Applicative f => MonadScheme f t (MomentIO f t) where
       previous <- newMutVar initial
       let stream = Stream (readMutVar previous)
           gather = process <$> runStream future
-          process = fmap scatter
+          process action = scatter <$> action
           scatter a = a `before` writeMutVar previous a
       pure (stream, gather)
 
