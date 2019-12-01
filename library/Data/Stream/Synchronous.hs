@@ -14,9 +14,6 @@ module Data.Stream.Synchronous
     stateful,
     stateful',
 
-    -- * Dynamically reconfigurable streams
-    MonadSwitch (until),
-
     -- * Effecting (ordered) streams
     MonadScheme (fbyAWith, statefulAWith),
     fbyA,
@@ -57,7 +54,7 @@ import Data.VectorSpace (InnerSpace ((<.>)), VectorSpace ((*^), Scalar))
 
 infixr 5 `fby`, `fby'`, `fbyA`, `fbyA'`
 
-infixl 4 `until`, `upon`
+infixl 4 `upon`
 
 -- * Stream views
 
@@ -200,11 +197,6 @@ stateful = statefulWith (const id)
 
 stateful' :: MonadMoment t m => a -> Stream t (a -> a) -> m (Stream t a)
 stateful' = statefulWith seq
-
--- * Dynamically reconfigurable streams
-
-class MonadMoment t m => MonadSwitch t m where
-  until :: m (Stream t a) -> Stream t Bool -> m (Stream t a)
 
 -- * Effecting (ordered) streams
 
