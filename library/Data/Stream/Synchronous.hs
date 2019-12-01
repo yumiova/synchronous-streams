@@ -288,29 +288,6 @@ instance Applicative f => MonadMoment t (Moment f t) where
               else pure (pure (pure ()))
       pure (stream, gather)
 
-instance Applicative f => MonadSwitch t (Moment f t) where
-  until moment restart =
-    Moment $ do
-      ~(originalStream, originalGather) <- runMoment moment
-      previousStream <- newMutVar originalStream
-      previousGather <- newMutVar originalGather
-      let stream =
-            Stream $ do
-              current <- readMutVar previousStream
-              runStream current
-          gather = do
-            condition <- runStream restart
-            if condition
-              then uncurry process <$> runMoment moment
-              else do
-                current <- readMutVar previousGather
-                current
-          process newStream newGather = pure (scatter newStream newGather)
-          scatter newStream newGather = do
-            writeMutVar previousStream newStream
-            writeMutVar previousGather newGather
-      pure (stream, gather)
-
 instance Applicative f => MonadScheme f t (Moment f t) where
   fbyAWith before initial future =
     Moment $ do
